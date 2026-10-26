@@ -1,0 +1,45 @@
+{
+ "source": "scan_212.json",
+ "generated": "2026-10-26",
+ "accounts": 212,
+ "buckets": {
+  "disc_0": 134,
+  "disc_2000": 1,
+  "disc_3000": 1,
+  "disc_6700": 1,
+  "login_invalid": 75
+ },
+ "discount_hits": [
+  {
+   "uid": "445***********20",
+   "discount_amount": 3000,
+   "card": "doubao_personal_std_auto_renew_month",
+   "button": "限时 38 元开通",
+   "trial": null,
+   "has_history_paid": false
+  },
+  {
+   "uid": "242**********94",
+   "discount_amount": 2000,
+   "card": "doubao_personal_std_auto_renew_month",
+   "button": "限时 48 元开通",
+   "trial": null,
+   "has_history_paid": false
+  },
+  {
+   "uid": "218***********51",
+   "discount_amount": 6700,
+   "card": "doubao_personal_std_auto_renew_month",
+   "button": "1 元试用到期后 68 元/月",
+   "trial": {
+    "duration": 7,
+    "duration_unit": 3,
+    "trial_period_amount": 100,
+    "trial_stage": 1,
+    "trial_type": 1
+   },
+   "has_history_paid": false
+  }
+ ],
+ "note": "uid masked; no cookies included"
+}

@@ -1,0 +1,15 @@
+{
+  "_note": "模板文件。所有值均为占位符，请替换为你自己的 Cookie。",
+  "_formats": "支持：cookie_string 字符串 / ck 字典 / shape C 字典 / 纯文本 name|ck / Playwright storage_state",
+  "accounts": [
+    {
+      "name": "sample_a1",
+      "uid": "0000000000000000",
+      "cookie_string": "sessionid=REDACTED; uid_tt=REDACTED; sid_tt=REDACTED"
+    },
+    {
+      "name": "sample_a2",
+      "ck": {"sessionid": "REDACTED", "uid_tt": "REDACTED"}
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+requests>=2.31
+playwright>=1.44
+qrcode>=7.4
+Pillow>=10.0

@@ -1,0 +1,32 @@
+# ---- secrets / live credentials ----
+pool/
+export/
+*.cookies.txt
+*.oneLine.txt
+*.state.json
+*.slim.txt
+.env
+!data/sample_pool.json
+
+# ---- raw captures ----
+_js_blob.txt
+_member_js/
+_member_page.html
+_chrome_prof*/
+_prof_login/
+jsdump*/
+
+# ---- binaries / media ----
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.mp4
+*.zip
+
+# ---- runtime noise ----
+__pycache__/
+*.pyc
+*.log
+*.err
+.pytest_cache/

@@ -1,0 +1,30 @@
+{
+ "source": "sweep_elig_434.json",
+ "generated": "2026-10-26",
+ "accounts": 212,
+ "buckets": {
+  "beta_1": 212,
+  "disc_0": 210,
+  "disc_2000": 1,
+  "disc_3000": 1,
+  "page_3": 137,
+  "page_None": 75
+ },
+ "nonzero": [
+  {
+   "uid": "445***********20",
+   "discount_amount": 3000,
+   "trial": null,
+   "button": "限时 38 元开通",
+   "scene": "{\"dynamic_scene\":\"first_purchase_price_38\"}"
+  },
+  {
+   "uid": "242**********94",
+   "discount_amount": 2000,
+   "trial": null,
+   "button": "限时 48 元开通",
+   "scene": "{\"dynamic_scene\":\"first_purchase_price_48\"}"
+  }
+ ],
+ "note": "uid masked"
+}
