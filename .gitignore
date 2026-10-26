@@ -30,3 +30,7 @@ __pycache__/
 *.log
 *.err
 .pytest_cache/
+# ---- R472 runtime ----
+qr/
+batch_ledger.jsonl
+qr_login_result.json
