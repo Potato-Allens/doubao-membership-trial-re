@@ -1127,7 +1127,7 @@ qs   = hex( (",".join(keys)).encode() XOR 0x05 )
 | 59 | 本机还有别的 Cookie 库能捞出可用号 | 扫 Chrome 4 个 Profile + 豆包客户端 3 个 Profile | ❌ 只多 1 个新 sessionid（`cc=0`，`disc=0`）；另有两个库被运行中进程锁住读不到 |
 | 60 | `bind_ticket/create` 需要合法的 `third_party_app_id` | 传 `1` / 随机串 / 空值各一次 | ❌ 全部出票（`bt_…`，TTL 30 min）⇒ 只开票，不校验 app |
 | 61 | 在 `www.doubao.com` 上打 passport 绑定就能过 app 鉴权 | 同一套参数分别打 `www` 与 `accounts` 域 | ❌ `www` 恒 `22 非法应用`；`accounts` 域过鉴权、进到 `2035` ⇒ **之前是域选错** |
-| 62 | 拿到 passport 全参就能把飞书身份绑到已有号 | `bind_prefered_lark` 5 组身份参数（code / access_token / profile_ticket / open_id+tenant_key / 组合） | ❌ 全部 `2035 非法请求`：缺 `sign` / `a_bogus` 的本地复算，绑定通道未打通 |
+| 62 | 拿到 passport 全参就能把飞书身份绑到已有号 | `bind_prefered_lark` 5 组身份参数（code / access_token / profile_ticket / open_id+tenant_key / 组合） | ❌ 当时全部 `2035 非法请求`（缺 `sign`）——R479 补上 sign 后 `2035` 消失，真实卡点见 #65 |
 | 63 | 美国 `+1` 手机号可以从登录弹窗直接注册 | 点开国家选择器，分别搜 `美国` / `1` / `+1` / `United` | ❌ 只有 `+86`/`+852`/`+853`/`+886` 四项，其余全部 `暂无数据` |
 | 64 | `bind_prefered_lark` 还需要 `a_bogus` | 带正确 `sign`、不带 `a_bogus` 打 bind | ❌ 返回 200（`error_code=3`），`2035` 消失 ⇒ `a_bogus` 不是 bind 的必需项 |
 | 65 | 拿到 `profile_ticket` 就能绑飞书 | `profile_ticket` / `scene` / `third_party_app_id` / `platform` / `open_id+tenant_key` / `access_token` 逐组 | ❌ 全部 `error_code=3 缺少参数`；唯一被接受的是 `code`，`code="test"` → `2087 企业安全策略` |
