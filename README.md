@@ -848,6 +848,14 @@ python stock.py --refresh             # 把 live_intake.jsonl 里新扫的号验
 python stock.py --mint --qr pay.png   # 从库存取一个，直接出 ¥1 支付链接 + 二维码
 ```
 
+**多槽扫码 `tools/qr_multi.py`**：一次开 N 个独立登录会话、摆 N 张码（`qr/slot_NN.png`），扫中哪张算哪张，
+比串行版少等 N 倍超时；命中当场出 ¥1 支付码（`qr/pay_slot_NN.png`）。
+
+```bash
+python qr_multi.py --slots 3 --timeout 300
+python qr_multi.py --slots 5 --stop-on-hit
+```
+
 当前库存：**3 个 uid / 6 条 cookie**，全部 `disc=6700, trial_stage=1`。建单不消耗资格，只有**支付成功**才把 `stage` 推到 2，所以这 3 个号可以反复出码，直到某一次真的付款。
 
 **为什么这叫「保底」而不是「百分百」**：资格仍由服务端按 uid 发放，客户端侧 52 条证伪（§11）已经封死。库存化的意义是——**永远不把没验过的号递出去**：出码那一刻，链接上写的就是 ¥1。
@@ -1075,6 +1083,7 @@ This repository documents **how the system works**, not how to bypass it. It con
 | 候选漏斗（境外 + 零订阅） | `tools/triage.py` |
 | 批量扫码出码（命中即停） | `tools/qr_batch.py` |
 | 资格库存 / 保底出码 | `tools/stock.py` |
+| 多槽扫码（N 张码同时摆） | `tools/qr_multi.py` |
 | 错误码对照 | 本文 §9、`docs/PROTOCOL.md` §12.2 |
 
 ---
