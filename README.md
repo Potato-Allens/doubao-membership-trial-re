@@ -221,7 +221,17 @@ POST /alice/commerce/sale/trade/init/?<公共参数>
 }
 ```
 
-`std` / `plus` / `pro` 三个 SKU，各 4 张卡（auto_renew_month / auto_renew_year / fixed_month / fixed_year），共 12 张。**只有 `std` 的 `auto_renew_month` 会带 `discount_amount=6700`。**
+实际返回是 **4 个 SKU / 13 张卡**：`doubao_free`（1 张 `doubao_free_display`）+ `std` / `plus` / `pro` 各 4 张（auto_renew_month / auto_renew_year / fixed_month / fixed_year）。**只有 `std` 的 `auto_renew_month` 会带 `discount_amount=6700` + `trial_info.trial_stage=1`。**
+
+响应顶层还有两个关键字段（此前文档漏记，R464 从 PC 客户端真包补全）：
+
+| 字段 | 取值 | 含义 |
+|---|---|---|
+| `activities[]` | `[{"crowd":"student","status":2}]` | 服务端下发的**人群活动状态**；`crowd` 是人群名，`status` 是状态位 |
+| `page_display_type` | `0` | 会员页展示形态 |
+| `has_history_paid_subscription` | `false` / `true` | 是否历史付费过（买过就 true，且不再回试用） |
+
+> 客户端真实请求体是 `{"scene_key":"default_member_link","purchase_channel":2}` —— **默认不带** `is_eligible_for_intro_offer`。该字段只在特定入口（从活动/结算页跳转）才会被置为 `true`。
 
 ### 6.2 `trade/create`
 
