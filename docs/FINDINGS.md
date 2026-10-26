@@ -190,3 +190,41 @@ CDP 抓包（R460）拿到了客户端原始 body，端点本身完全可用。�
 | 11 个活号命中 | **0** |
 
 ⇒ 当前瓶颈是**号源**，不是判定逻辑。
+---
+
+## K. R462：campaign / incentive / ug 族的定性（多为死代码）
+
+### K.1 全池复核
+
+- 212 个号实测 **137 活**（`code=0`），此前"11/40"是抽样偏差。
+- `disc>0` 仅 3 个：6700（唯一 1 元试用）· 3000 · 2000。
+- `cc=1`（美区）共 5 个，全部注册于 2026-10-13/14，唯一 6700 命中在其中（1/5）。但同批另外 4 个全 0，样本太小，**不能**据此认定美区专享。
+
+### K.2 端点定性
+
+| 端点 | 实测 | 定性 |
+|---|---|---|
+| `sale/campaign/trial/init/` | 恒 `710010702` | **死接口**（bundle 无调用点） |
+| `incentive/campaign/subscription/query/` | `code 0, data null` | 无活动上下文 |
+| `incentive/campaign/join/` | 需 `campaign_id`，拿不到 | **无调用点** |
+| `incentive/campaign/pc_new_user_page/detail/` | 需 `campaign_id` | **无调用点**（PC 新客页未接线） |
+| `sale/campaign/page/query/` | 所有号都 `{page_status:3,page_type:0}` | `page_status` 在 bundle 里 **0 命中** ⇒ 客户端不解析，属死字段 |
+| `intake/entitlement/query` | `scene=1` → `fingerprint` | 命中号与普通号**同值**，设备级指纹 |
+| `benefit_supply/fission/get_user_is_new_flag` | 空 body → `710010202` | 需参数 |
+| `benefit_supply/fission/get_group_invitation` | 需 `campaign_key` | 拿不到 key |
+| `ug/campaign/list/` | 空 body → `code 1` | 真实入参 `{campaign_group_code,pinned_campaign_code,scene}` |
+| `ug/campaign/v3/detail/` | 传 `campaign_id` → `710010202` | 真实入参是 `campaign_group_code` |
+| `ug/campaign/create/` | 空 body → **625002002**（新错误码） | 端点活着，入参 `{campaign_code,scene}` |
+| `ug/campaign/verify/` | — | 入参 `{invite_code}` |
+| `ug/campaign/landing/get` | `code 0`，空页面 | 需活动上下文 |
+| `marketing/cta/resolve_fixed_cta` | 仅 `scene_key=profile` 有返回 | 返回 `policy_id=fixed_upgrade_version_web` |
+
+### K.3 差分
+
+命中号（已焚毁）vs 2 个普通号 × 12 个只读端点：字段级 diff **除时间戳/URL 外零差异**。
+
+⇒ 资格不存在"可观测的客户端标记"；只能从 `trade/init` 的 `discount_amount` + `trial_info` 读出来。
+
+### K.4 待验（后台任务）
+
+零点名额刷新假设：`_r470_grab.py` 在 23:57 起每 5s 查活动状态、每 120s 对 137 活号全量 `trade/init`，命中即建单。结果见 `_r470_grab.log` / `_r470_hits.jsonl`。

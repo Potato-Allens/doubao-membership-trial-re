@@ -403,6 +403,20 @@ POST /biz/activity/get_pop_window?<公共参数>&doubao_device_platform=desktop
 
 结论：**瓶颈已经从"资格判定"转移到"号源"**。历史池的 Cookie 大批失效，且磁盘上其余 `sessionid` 大多是字节另一个产品（Dola）的会话，打到豆包统一 `710012001`。
 
+### 10.5 全池复核与差分（R462）
+
+| 指标 | 数值 |
+|---|---|
+| 池内总数 | 212 |
+| 实测存活 | **137**（此前"11/40"是抽样偏差） |
+| `disc` 分布 | 6700 × 1（唯一 1 元）· 3000 × 1 · 2000 × 1 · 其余 0 |
+| `cc` 分布 | 86×52 · 852(HK)×76 · 1(US)×5 · 0×4 · 失效 75 |
+| `cc=1` 的 5 个号 | 全部注册于 2026-10-13/14，唯一 6700 命中在其中（1/5） |
+
+**差分实验**：命中号（已焚毁）与 2 个普通号，对 12 个只读端点（`subscribe/init`、`entry/config`、`new_flag`、`credit/tasks`、`entitlement/query`、`page/query`、`card/list` 等）做字段级 diff —— 除时间戳与 URL 外**零差异**。
+
+> 也就是说：资格没有任何"可观测的客户端标记"，只在 `trade/init` 的价格与 `trial_info` 里体现。`intake/entitlement/query` 返回的 `fingerprint` 在命中号与普通号上**完全相同**（设备级指纹，不是用户级标记）。
+
 ---
 
 ## 11. 已证伪清单（重要）
@@ -427,6 +441,11 @@ POST /biz/activity/get_pop_window?<公共参数>&doubao_device_platform=desktop
 | 14 | `hm=2` 地区包决定资格 | 81 个 `hm=2` 号 | ❌ 仅 1 命中，与 `hm` 无相关性 |
 | 15 | "新用户"标记决定资格 | 60 号 `new_user_check` | ❌ 35 个 `is_old_user=false` 全部 0 命中 |
 | 16 | 注册时间越早越容易命中 | 按注册月分组 | ❌ 2026-10 注册 100 号仅 1 命中，无单调关系 |
+| 17 | 换地区/语言参数触发海外版试用 | `region`/`sys_region` US·CN·HK·SG × `language` en·zh，5 个 cc=1 号 | ❌ 全部 `disc=0` |
+| 18 | 换 `scene_key` 走别的活动入口 | 16 个 scene × 3 个 `feature_key` | ❌ 只有 `default_member_link` 回 code 0，其余 `611060101/611060900`，均无折扣 |
+| 19 | 换 SKU 拿别的试用卡 | std/plus/pro/ultra/team | ❌ 返回都是同一组 13 张卡（含 `doubao_free_display`） |
+| 20 | 用 `campaign/page/query` 的 `page_status` 判断名额 | 全部账号（含已焚毁的命中号）都回 `{page_status:3}`；**`page_status` 在 41 MB bundle 里 0 命中** | ❌ 死字段，客户端根本不解析；"售罄"解读作废 |
+| 21 | `campaign/trial/init` / `incentive/campaign/join` / `pc_new_user_page` 可领试用 | 逐个调用 + 查 bundle 调用点 | ❌ `trial/init` 恒 `710010702`；后两者**只定义无调用**（死代码） |
 
 第 10 条是本轮最贵的一刀：用了唯一带资格的账号，¥1 已退，`subscription_id` 归 0，资格永久消失。
 

@@ -271,3 +271,45 @@ POST /biz/activity/get_pop_window?aid=582478&doubao_device_platform=desktop
 
 `marketing/activity/detail` 对**任意** `activity_key`（`zzzzzzzz` / `test` / `q923dmsa` / `k7m3qx9p`）都返回 `{status:2}`。
 ⇒ `status:2` 是**兜底返回值**，不能解读为"活动已售罄/已关闭"。此前基于该字段的判断作废。
+---
+
+## 12. campaign / incentive / ug 族的真实入参（bundle 还原）
+
+web bundle（41 MB）里这些 API 的封装函数如下，**参数名以本表为准**：
+
+| 函数 | 路径 | 入参 |
+|---|---|---|
+| `GetCampaignList` | `/alice/ug/campaign/list/` | `{campaign_group_code, pinned_campaign_code, scene, AgwCommonParam}` |
+| `GetCampaignV3Detail` | `/alice/ug/campaign/v3/detail/` | `{campaign_group_code, AgwCommonParam}` |
+| `CreateCampaign` | `/alice/ug/campaign/create/` | `{campaign_code, scene, AgwCommonParam}` |
+| `VerifyCampaign` | `/alice/ug/campaign/verify/` | `{invite_code, AgwCommonParam}` |
+| `ClaimCampaignReward` | `/alice/ug/campaign/item/reward/claim/` | `{task...}` |
+| `LandingEventReport` | `/alice/ug/campaign/landing/report` | `{event_type, biz_event_name, biz_params}` |
+| `DailyCheckIn` | `/alice/ug/campaign/landing/checkin` | `{scene, biz_params}`(map) |
+| `AGWJoinCampaign` | `/alice/commerce/incentive/campaign/join/` | `{campaign_id}` |
+| `AGWGetPcNewUserCampaignPage` | `/alice/commerce/incentive/campaign/pc_new_user_page/detail/` | `{campaign_id}` |
+| `AGWGetSubscriptionCampaign` | `/alice/commerce/incentive/campaign/subscription/query/` | 无 body |
+| `AGWResolveFixedCTA` | `/alice/commerce/sale/marketing/cta/resolve_fixed_cta` | `{scene_key, sku_key}` |
+| `AGWInitCampaignTrial` | `/alice/commerce/sale/campaign/trial/init/` | 无 body |
+| `AGWQueryCampaignPage` | `/alice/commerce/sale/campaign/page/query/` | 无 body |
+| `AGWMGetMarketingResources(V2)` | `/alice/commerce/marketing/resource/mget[/v2]/` | `{resource_keys: string[], is_eligible_for_intro_offer: bool}` |
+
+### 12.1 死代码判定（重要）
+
+用「路径字符串出现次数 vs 封装函数被调用次数」交叉验证，以下封装**只有定义、没有调用点**：
+
+- `AGWInitCampaignTrial`（`campaign/trial/init`）
+- `AGWJoinCampaign` / `AGWGetPcNewUserCampaignPage`
+- `AGWQueryCampaignPage`（`page_status` 字段在 bundle 里 0 命中）
+
+⇒ 这些接口即使打通也不会影响价格；不要再用它们推断"活动名额/售罄"。
+
+### 12.2 新错误码
+
+| code | 触发 | 含义 |
+|---|---|---|
+| `625002002` | `ug/campaign/create/` 空 body | 缺 `campaign_code`（端点存活） |
+| `611070001` | `resolve_fixed_cta` 未知 scene | scene_key 未注册 |
+| `611070003` | `resolve_fixed_cta` `default_member_link` | 该 scene 无固定 CTA |
+| `611060101` | `trade/init` 未知 scene_key | scene 不合法 |
+| `611060900` | `trade/init` scene/feature 组合不合法 | 参数组合错误 |
