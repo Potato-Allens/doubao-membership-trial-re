@@ -1,0 +1,48 @@
+{
+  "round": "R479",
+  "date": "2026-10-27",
+  "note": "Offline reconstruction. No cookies, tickets, tokens or payment data are included.",
+  "sdk_bundle": "dg.3873c5e9df.js (passport jssdk 4.4.6), module DbN.g",
+  "app_key": "2094abfcccefaeaffd24c622475fba10",
+  "algorithm": {
+    "keys": "sorted(params)[:10]  # splice(10)",
+    "params_str": "k=v joined by & (objects via JSON.stringify)",
+    "body_str": "same for request body",
+    "raw": "{params_str}&{body_str}&app_key={app_key}",
+    "sign": "sha256(raw).hexdigest()",
+    "qs": "hex(utf8(','.join(keys)) XOR 0x05)",
+    "excluded": ["ts", "sign", "qs", "a_bogus"]
+  },
+  "selftest": {
+    "capture": "_passport_reqs.json",
+    "requests": 6,
+    "matched": 6,
+    "paths": [
+      "/passport/web/auth/get_oauth_token/",
+      "/passport/web/get_qrcode/",
+      "/passport/web/check_qrconnect/"
+    ]
+  },
+  "bind_prefered_lark": {
+    "url": "https://accounts.doubao.com/passport/doubao/web/bind_prefered_lark/",
+    "sign_valid": true,
+    "a_bogus_required": false,
+    "results": [
+      {"body": {}, "error_code": 3, "description": "缺少参数"},
+      {"body": {"profile_ticket": "<valid>"}, "error_code": 3, "description": "缺少参数"},
+      {"body": {"scene": "lark"}, "error_code": 3, "description": "缺少参数"},
+      {"body": {"third_party_app_id": "1"}, "error_code": 3, "description": "缺少参数"},
+      {"body": {"platform": "lark"}, "error_code": 3, "description": "缺少参数"},
+      {"body": {"open_id": "x", "tenant_key": "y"}, "error_code": 3, "description": "缺少参数"},
+      {"body": {"access_token": "x"}, "error_code": 3, "description": "缺少参数"},
+      {"body": {"code": "test"}, "error_code": 2087, "description": "由于企业安全策略，暂无权限使用飞书连接器"}
+    ],
+    "conclusion": "`code` (Lark OAuth) is the only accepted field; the remaining gate is tenant policy. Binding does not change uid or country_code."
+  },
+  "phone_country_selector": {
+    "host": "www.doubao.com login modal -> 手机号登录",
+    "options": ["+86 中国大陆", "+852 中国香港", "+853 中国澳门", "+886 中国台湾"],
+    "searches": {"美国": "暂无数据", "1": "暂无数据", "+1": "暂无数据", "United": "暂无数据"}
+  },
+  "files": ["tools/passport_sign.py", "tools/passport_sdk.py"]
+}

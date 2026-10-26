@@ -5,7 +5,7 @@
 [![Python](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)](#51-安装)
 [![Accounts](https://img.shields.io/badge/sample-560%20accounts-4B5563)](#10-实测数据)
 [![Endpoints](https://img.shields.io/badge/endpoints-80%2B-0EA5E9)](#8-接口地图)
-[![Falsified](https://img.shields.io/badge/hypotheses%20falsified-62-DC2626)](#11-已证伪清单重要)
+[![Falsified](https://img.shields.io/badge/hypotheses%20falsified-65-DC2626)](#11-已证伪清单重要)
 [![License](https://img.shields.io/badge/license-Apache--2.0-111827)](LICENSE)
 
 对豆包（Doubao）会员订阅体系做的一次**协议级逆向工程**：静态分析约 41 MB 的前端 bundle、用 CDP 抓 PC 客户端真包、对 212 个历史账号做只读探测与差分，最终把「1 元 / 7 天试用」的判定、下单、支付、退款、取消续费整条链路还原成可复现的代码与数据。
@@ -19,9 +19,9 @@
 | 项 | 内容 |
 |---|---|
 | **英文仓库名** | `doubao-membership-trial-re` |
-| **英文 About（GitHub 描述）** | Protocol-level reverse engineering of Doubao membership: a per-uid eligibility oracle, the full order → pay → refund pipeline, and 62 falsified hypotheses. |
+| **英文 About（GitHub 描述）** | Protocol-level reverse engineering of Doubao membership: a per-uid eligibility oracle, the full order → pay → refund pipeline, and 65 falsified hypotheses. |
 | **建议 Topics** | `reverse-engineering`, `protocol-analysis`, `doubao`, `subscription`, `cdp`, `traffic-analysis`, `python` |
-| **中文介绍** | 对豆包会员订阅体系做协议级逆向：用 41 MB 前端 bundle 静态还原 + PC 客户端 CDP 真包抓取 + 560 个账号（243 个存活）只读探测，证明「1 元 / 7 天试用」是服务端按 `uid` 下发的人群包资格，客户端无任何开关。R475 找到服务端资格标记 `marketing/resource/mget/v2` 的 `exit_retention.activity_id`：`first_purchase_discount` / `free_trial_v2` 即被活动选中，一次请求即可 16.8 秒预筛全池、标记号出单命中率 100%，把原来的 16.7% 抽奖变成两级流水线（先筛标记、再按地区定档）。仓库给出只读判定器、命中出单流水线、80+ 端点 schema，以及 62 条实测证伪记录（含 R478 passport 签名面、退款不回滚、零点不放名额、裂变入口无活动、买退再买、客户端全部开关等）。 |
+| **中文介绍** | 对豆包会员订阅体系做协议级逆向：用 41 MB 前端 bundle 静态还原 + PC 客户端 CDP 真包抓取 + 560 个账号（243 个存活）只读探测，证明「1 元 / 7 天试用」是服务端按 `uid` 下发的人群包资格，客户端无任何开关。R475 找到服务端资格标记 `marketing/resource/mget/v2` 的 `exit_retention.activity_id`：`first_purchase_discount` / `free_trial_v2` 即被活动选中，一次请求即可 16.8 秒预筛全池、标记号出单命中率 100%，把原来的 16.7% 抽奖变成两级流水线（先筛标记、再按地区定档）。仓库给出只读判定器、命中出单流水线、80+ 端点 schema，以及 65 条实测证伪记录（含 R478 passport 签名面、退款不回滚、零点不放名额、裂变入口无活动、买退再买、客户端全部开关等）。 |
 
 ## 0. 30 秒读懂
 
@@ -133,7 +133,8 @@ doubao-membership-trial-re/
 │   └── evidence/
 │       ├── endpoint_catalog.json     # 端点清单
 │       ├── scan_212_summary.json     # 212 号扫描汇总（uid 已打码）
-│       └── r478_passport.json          # R478：passport 端点矩阵 + SDK 指纹（已脱敏）
+│       ├── r478_passport.json          # R478：passport 端点矩阵 + SDK 指纹（已脱敏）
+│       └── r479_passport_sign.json     # R479：sign 算法 + bind 参数矩阵 + 国家列表
 └── tools/                        # 200+ 脚本（同一目录，保证相对导入）
     ├── doubao_yuan.py            # 主 CLI：scan / mint / status / cancel
     ├── intake.py                 # Cookie 池归一化 + 校验
@@ -143,6 +144,7 @@ doubao-membership-trial-re/
     ├── _r467_fission_probe.py    # fission 族探测（R467）
     ├── _r467_fission_sweep.py    # fission 入口全池扫描（R467）
     ├── passport_sdk.py           # 解码 account_sdk_source_info / qs（R478）
+    ├── passport_sign.py          # sign / qs 本地复算（R479）
     └── _*.py                     # 单点探测脚本（每个一个假设）
 ```
 
@@ -995,13 +997,13 @@ R477 补上「美国出口 + `region=US&sys_region=US&language=en`」这个组�
 `/passport/mobile/bind/` 返回 `16 该应用无权限`。要走通得拿到 passport 那套 `aid/app_name/iid/
 passport-sdk-version` 参数（登录页里有，但和 commerce 的 scope 是两套）。这条路目前**卡在短信号源**上。
 
-### 10.19 passport 面：域换对了，卡在 `sign` / `a_bogus`（R478）
+### 10.19 passport 面：`sign` 已完全复算，bind 卡在 Lark `code` + 企业策略（R478/R479）
 
-**（1）之前一直打错域。** 会员绑定/账号档案那套接口不属于 `www.doubao.com`，而是 **`accounts.doubao.com`**。
+**（1）域换对了。** 会员绑定/账号档案那套接口不属于 `www.doubao.com`，而是 **`accounts.doubao.com`**。
 同一套参数在 `www` 上恒返回 `{"error_code":22,"description":"非法应用"}`；换到 `accounts` 域后
-app 鉴权这一关直接过了，请求进入业务层。R477 的「passport 全负」有一半是域选错导致的假阴性。
+app 鉴权这一关直接过了。R477 的「passport 全负」有一半是域选错导致的假阴性。
 
-**（2）三个开票/只读接口可用**（AGW `aid=497858` + passport 参数）：
+**（2）开票/只读接口可用**（AGW `aid=497858` + passport 参数）：
 
 | 接口 | 入参 | 返回 |
 |---|---|---|
@@ -1011,44 +1013,50 @@ app 鉴权这一关直接过了，请求进入业务层。R477 的「passport �
 | `GET /passport/account/info/v2/` | passport 参数 | 完整账号档案（cc / create_time / …） |
 
 `bind_ticket/create` 的 `third_party_app_id` 传 `1`、随机串、甚至空值都能出票 ⇒ **它只是开票，不校验 app**。
-票本身不是绑定凭证，真正执行绑定的还是下面那个接口。
 
-**（3）绑定动作卡在签名。** `/passport/doubao/web/bind_prefered_lark/` 在 `accounts` 域 + 完整
-passport 参数下返回 `2035 非法请求`（已经不是 22 了）。抓到的真实登录流里，每个请求都带三件套：
-
-| 参数 | 长度 | 作用 |
-|---|---|---|
-| `sign` | 64 hex | 签名值；`qs` 就是它覆盖的参数名清单（算法尚未还原） |
-| `a_bogus` | 188 chars | 风控指纹签名 |
-| `qs` | 292 hex | **被签名的参数名清单**（见下） |
-
-`qs` 解出来就是参数名列表：`account_app_language,account_sdk_source,account_sdk_source_info,aid,
-biz_trace_id,device_platform,is_from_ttaccountsdk,language,multi_login,os_type`。
-我们的重放里没有 `sign` / `a_bogus`（或值对不上），服务端就统一回 `2035`。
-5 组身份参数（`code` / `access_token` / `profile_ticket` / `open_id+tenant_key` / 组合）结果一致。
-
-**（4）`account_sdk_source_info` 与 `qs` 都是可解的。** 两者都是 `hex(XOR(明文, 0x05))`：
+**（3）`sign` 已完全复算（R479，6/6 逐字节一致）。** 算法就在 passport SDK
+（`dg.3873c5e9df.js` 的 `DbN.g`）里：
 
 ```python
-raw = bytes.fromhex("7e276d6477617264...")
-print(bytes(b ^ 0x05 for b in raw).decode())
-# {"hardwareConcurrency":24,"webdriver":true,...}
+keys = sorted(params)[:10]        # 只签前 10 个键，splice(10)
+pstr = "&".join(f"{k}={v}" for k in keys)
+bstr = "&".join(f"{k}={v}" for k in sorted(body))
+sign = sha256(f"{pstr}&{bstr}&app_key={APP_KEY}").hexdigest()
+qs   = hex( (",".join(keys)).encode() XOR 0x05 )
 ```
 
-还原出的字段覆盖 13 个顶层键：`hardwareConcurrency`、`webdriver`、`chromedriver`、`shelldriver`、
-`plugins`、`innerWidth/Height`、`outerWidth/Height`、`webgl{vendor,renderer}`、
-`automation{s,c,p,s1,c1,p1}`、`performance{timeOrigin,usedJSHeapSize,navigationTiming}`、
-`browser{t,bit_protocol,bit_helper}`。
+- `APP_KEY = 2094abfcccefaeaffd24c622475fba10`（豆包 web 的公开 app key，aid=497858）；
+- `ts` / `sign` / `qs` / `a_bogus` 都是**签名之后**才加进去的，不能参与计算；
+- 只覆盖**字母序前 10 个参数** —— 所以 `passport_jssdk_version`、`terminal_type` 这类排在第 11 位之后的
+  参数其实不在签名里；`qs` 就是这 10 个键的名字清单；
+- `tools/passport_sign.py --selftest _passport_reqs.json` 对 6 条真实抓包
+  （`get_oauth_token` + `get_qrcode` + `check_qrconnect`×4）**6/6 复现 sign 与 qs**。
 
-其中 **`"webdriver": true`** 是自动化环境的直接指纹 —— 我们用 Playwright 抓包时，SDK 每次都在上报它。
-这条是双向的：服务端看得见 webdriver；要拿干净指纹，必须真浏览器/去 webdriver 化。
-`tools/passport_sdk.py` 可以把任意一份抓包里的这两个参数解回明文。
+**（4）`account_sdk_source_info` 也可解。** 与 `qs` 同一套编码 `hex(XOR(明文, 0x05))`，
+解出来是 13 个顶层键的设备指纹：`hardwareConcurrency`、`webdriver`、`chromedriver`、
+`shelldriver`、`plugins`、`innerWidth/Height`、`outerWidth/Height`、`webgl{}`、
+`automation{}`、`performance{}`、`browser{}`。我们抓包时 **`"webdriver": true`** 被原样上报
+—— 服务端看得见自动化环境。`tools/passport_sdk.py` 可以解这两个参数。
 
-**（5）还差什么。** `sign`（64 hex）与 `a_bogus`（188 chars）由登录页 SDK 在本地生成，
-参数模板已全部抓到（`passport_jssdk_version=4.4.6`、`p_ca=4.0.26`、`p_ca_real=1.0.0.983`、
-`biz_trace_id`、`device_platform=web`、`os_type=1`、`terminal_type=2` …）。
-下一步是定位 bundle 里的签名函数并在本地复算 —— 打通后就能把飞书身份绑到**已有命中号**上，
-而不是每次扫码新建一个 `cc=0` 号。这是目前唯一能「让指定账号 100% 有 1 元」的通道。
+**（5）bind 的真实卡点：不是签名，是 Lark `code` + 企业策略。**
+带正确 `sign`、不带 `a_bogus` 打 `/passport/doubao/web/bind_prefered_lark/`：
+
+| body | 结果 |
+|---|---|
+| `{}` | `error_code=3 缺少参数` |
+| `{"profile_ticket": <真实票>}` | `error_code=3 缺少参数` |
+| `{"scene":"lark"}` / `{"third_party_app_id":"1"}` / `{"platform":"lark"}` | `error_code=3 缺少参数` |
+| `{"open_id":"x","tenant_key":"y"}` / `{"access_token":"x"}` | `error_code=3 缺少参数` |
+| `{"code":"test"}` | `error_code=2087`「由于企业安全策略，暂无权限使用飞书连接器」 |
+
+⇒ **`code` 是唯一被接受的入参**（Lark OAuth 授权码）；`2035` 已经消失，`a_bogus` 不是 bind 的必需项。
+`2087` 说明还差一个真实 code，且该 Lark 租户要允许连接器。绑定不会改变 `uid` 与 `country_code`，
+所以它解决的是「登录/接管命中号」，**不是给任意号造资格**。
+
+**（6）+1 手机号注册不可行。** 登录弹窗的国家选择器只有四个选项：
+`+86 中国大陆`、`+852 中国香港`、`+853 中国澳门`、`+886 中国台湾`；
+搜 `美国` / `1` / `+1` / `United` 全部 `暂无数据`。R470 里的 `cc=1` 账号不是从这个入口注册的，
+想在客户端上批量造 `cc=1` 新号这条路是死的。
 
 ## 11. 已证伪清单（重要）
 
@@ -1120,6 +1128,9 @@ print(bytes(b ^ 0x05 for b in raw).decode())
 | 60 | `bind_ticket/create` 需要合法的 `third_party_app_id` | 传 `1` / 随机串 / 空值各一次 | ❌ 全部出票（`bt_…`，TTL 30 min）⇒ 只开票，不校验 app |
 | 61 | 在 `www.doubao.com` 上打 passport 绑定就能过 app 鉴权 | 同一套参数分别打 `www` 与 `accounts` 域 | ❌ `www` 恒 `22 非法应用`；`accounts` 域过鉴权、进到 `2035` ⇒ **之前是域选错** |
 | 62 | 拿到 passport 全参就能把飞书身份绑到已有号 | `bind_prefered_lark` 5 组身份参数（code / access_token / profile_ticket / open_id+tenant_key / 组合） | ❌ 全部 `2035 非法请求`：缺 `sign` / `a_bogus` 的本地复算，绑定通道未打通 |
+| 63 | 美国 `+1` 手机号可以从登录弹窗直接注册 | 点开国家选择器，分别搜 `美国` / `1` / `+1` / `United` | ❌ 只有 `+86`/`+852`/`+853`/`+886` 四项，其余全部 `暂无数据` |
+| 64 | `bind_prefered_lark` 还需要 `a_bogus` | 带正确 `sign`、不带 `a_bogus` 打 bind | ❌ 返回 200（`error_code=3`），`2035` 消失 ⇒ `a_bogus` 不是 bind 的必需项 |
+| 65 | 拿到 `profile_ticket` 就能绑飞书 | `profile_ticket` / `scene` / `third_party_app_id` / `platform` / `open_id+tenant_key` / `access_token` 逐组 | ❌ 全部 `error_code=3 缺少参数`；唯一被接受的是 `code`，`code="test"` → `2087 企业安全策略` |
 
 第 10 条是本项目最贵的一刀：用了唯一带资格的账号，¥1 已退，`subscription_id` 归 0，资格永久消失。
 
@@ -1248,6 +1259,7 @@ This repository documents **how the system works**, not how to bypass it. It con
 
 | Round | 内容 |
 |---|---|
+| **R479** | passport `sign` 完全复算（sha256，前 10 个排序参数 + body + app_key，6/6 复现）；`bind_prefered_lark` 带正确 sign 后 2035 消失，唯一必需入参是 Lark `code`，`code="test"` 返回 `2087 企业安全策略`；`a_bogus` 不是 bind 必需项；+1 注册不可行（国家列表仅 +86/+852/+853/+886）；新增证伪 #63–#65 |
 | **R478** | passport 域纠正为 `accounts.doubao.com`（`www` 恒 `22 非法应用`）；`bind_ticket/create` 任意 `third_party_app_id` 均出票（TTL 30 min）；`bind_prefered_lark` 过 app 鉴权后卡 `2035`，缺 `sign`/`a_bogus` 本地复算；解出 `account_sdk_source_info` 与 `qs` 均为 `hex(XOR(明文,0x05))`，指纹里 `webdriver:true`；新增 `tools/passport_sdk.py`、证伪 #60–#62 |
 | **R476** | 拆开「展示资源」与「资格」：`resource/frequency/report` 只消费 `exit_retention` 展示（activity_id → None），`trade/init` 的 `6700 / stage=1` 不变（2/2）；`screen.py` 默认改用 `trade/init` ground truth，243 活号复扫确认全池仅 3 个 uid 能出 ¥1；同一 uid 的 activity 会从 `first_purchase_discount` 漂到 `free_trial_v2`；cc=1 7.1% / cc=86 3.1% / cc=852 0.8% / cc=0 0%（20 样本）；新增证伪 #54–#56 |
 | **R477** | 出口 IP（US×2/HK/SG/NL/FR/CM）+ `region=US` 组合全部无效（`country_code` 恒 CN、`disc=0`）；本机 Chromium 系 Cookie 库补扫只多 1 个 `cc=0` 新号（0 命中）；飞书 SSO 样本累计 22 个 0 命中；`/passport/*/mobile/bind/` 存在但需 passport SDK app 鉴权（`非法应用/该应用无权限`）；新增证伪 #57–#59 |
@@ -1293,8 +1305,9 @@ This repository documents **how the system works**, not how to bypass it. It con
 | 资格标记预筛（1 请求/号） | `tools/screen.py` |
 | passport 绑定面 / 签名参数 | `tools/passport_sdk.py capture _passport_reqs.json`、§10.19 |
 | SDK 指纹解码（XOR 0x05） | `tools/passport_sdk.py decode <hex>`、`docs/evidence/r478_passport.json` |
+| passport `sign` 复算自检 | `tools/passport_sign.py --selftest _passport_reqs.json`（6/6）、§10.19 |
 | 错误码对照 | 本文 §9、`docs/PROTOCOL.md` §12.2 |
 
 ---
 
-*Last updated: 2026-10-27 (R478) · 目标未达成，继续死磕。*
+*Last updated: 2026-10-27 (R479) · 目标未达成，继续死磕。*
