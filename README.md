@@ -387,6 +387,10 @@ POST /biz/activity/get_pop_window?<公共参数>&doubao_device_platform=desktop
 
 **这两条解释了此前的一整轮空转**：`config/pull` 的 `objects` 是 **int 数组**、`reason` 是 **int**，之前按字符串/对象构造，全部被判 `710010202`，于是误判成"端点不可用"。抓包同时说明客户端是**分包拉取**（4 次请求，最大一次 62 个 id），不是一次拉全量。
 
+> 复核（同日，4 个活号）：用正确类型重打，`{"objects":[114,111],"reason":2}` 稳定 `code=0`，返回 `data.configs[]`（`object` / `value` / `version` 三元组）。把 id `0~500` 全量拉一遍只回 **36 个**对象（`4,5,6,60,70,71,73,74,75,80,90,91,98,110~118,130,131,140~149,152,177,179`），其中只有 UI 配置有内容（模式栏、菜单、订阅跳转 URL），**没有 campaign / 试用相关字段**。
+>
+> 而客户端那 62 个 id（`300~357,376,379`）在本会话下**恒为空**——已试 `aid` 497858/582478 × `doubao_device_platform` desktop/pc/web × `version_code` 20800/20900 共 12 组，全部 `code=0, n=0`。说明这些配置对象要么绑定 PC 客户端真实设备身份（`device_id`/`install_id`），要么不属于 web 账号命名空间。
+
 > 复现要点：CDP 连接需 `websocket.create_connection(url, suppress_origin=True)`，否则被 Origin 校验拒绝；必须挂 `Page` 域并 reload，`config/pull` 只在首屏加载时发一次。
 
 ### 10.4 账号池存活率（R460 复核）
