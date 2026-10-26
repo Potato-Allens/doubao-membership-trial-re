@@ -1,0 +1,42 @@
+{
+  "round": "R480",
+  "date": "2026-10-27",
+  "note": "Read-only pool expansion and transfer probes. No cookies or order IDs included.",
+  "multi_sids": {
+    "cookies_with_multi_sids": 424,
+    "unique_uids": 381,
+    "unique_sids": 433,
+    "outside_alive_pool_uids": 163,
+    "outside_sids_tested": 171,
+    "alive": 3,
+    "alive_cc": {"0": 3},
+    "hits": 0,
+    "dead_code": "710012001"
+  },
+  "downloads_sessionids": {
+    "files_scanned": 233,
+    "unique_sids": 6675,
+    "not_in_pool": 4551,
+    "sample_tested": 240,
+    "alive": 0
+  },
+  "cc86_marker_cards": {
+    "uid": "4452338580329820",
+    "cards": 13,
+    "with_trial_info": 0,
+    "best": {"card_id": "doubao_personal_std_auto_renew_month", "discount_amount": 3000, "button": "限时 38 元开通"}
+  },
+  "gift_deferred": {
+    "uid": "3999391513351705",
+    "is_gift_deferred": true,
+    "code": 611060114,
+    "message": "price has been updated, please confirm and retry"
+  },
+  "stock_recheck": {
+    "cookies": 6,
+    "uids": 3,
+    "ok": 6,
+    "disc": 6700,
+    "trial_stage": 1
+  }
+}

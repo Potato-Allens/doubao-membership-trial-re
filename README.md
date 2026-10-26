@@ -5,7 +5,7 @@
 [![Python](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)](#51-安装)
 [![Accounts](https://img.shields.io/badge/sample-560%20accounts-4B5563)](#10-实测数据)
 [![Endpoints](https://img.shields.io/badge/endpoints-80%2B-0EA5E9)](#8-接口地图)
-[![Falsified](https://img.shields.io/badge/hypotheses%20falsified-65-DC2626)](#11-已证伪清单重要)
+[![Falsified](https://img.shields.io/badge/hypotheses%20falsified-69-DC2626)](#11-已证伪清单重要)
 [![License](https://img.shields.io/badge/license-Apache--2.0-111827)](LICENSE)
 
 对豆包（Doubao）会员订阅体系做的一次**协议级逆向工程**：静态分析约 41 MB 的前端 bundle、用 CDP 抓 PC 客户端真包、对 212 个历史账号做只读探测与差分，最终把「1 元 / 7 天试用」的判定、下单、支付、退款、取消续费整条链路还原成可复现的代码与数据。
@@ -19,9 +19,9 @@
 | 项 | 内容 |
 |---|---|
 | **英文仓库名** | `doubao-membership-trial-re` |
-| **英文 About（GitHub 描述）** | Protocol-level reverse engineering of Doubao membership: a per-uid eligibility oracle, the full order → pay → refund pipeline, and 65 falsified hypotheses. |
+| **英文 About（GitHub 描述）** | Protocol-level reverse engineering of Doubao membership: a per-uid eligibility oracle, the full order → pay → refund pipeline, and 69 falsified hypotheses. |
 | **建议 Topics** | `reverse-engineering`, `protocol-analysis`, `doubao`, `subscription`, `cdp`, `traffic-analysis`, `python` |
-| **中文介绍** | 对豆包会员订阅体系做协议级逆向：用 41 MB 前端 bundle 静态还原 + PC 客户端 CDP 真包抓取 + 560 个账号（243 个存活）只读探测，证明「1 元 / 7 天试用」是服务端按 `uid` 下发的人群包资格，客户端无任何开关。R475 找到服务端资格标记 `marketing/resource/mget/v2` 的 `exit_retention.activity_id`：`first_purchase_discount` / `free_trial_v2` 即被活动选中，一次请求即可 16.8 秒预筛全池、标记号出单命中率 100%，把原来的 16.7% 抽奖变成两级流水线（先筛标记、再按地区定档）。仓库给出只读判定器、命中出单流水线、80+ 端点 schema，以及 65 条实测证伪记录（含 R478 passport 签名面、退款不回滚、零点不放名额、裂变入口无活动、买退再买、客户端全部开关等）。 |
+| **中文介绍** | 对豆包会员订阅体系做协议级逆向：用 41 MB 前端 bundle 静态还原 + PC 客户端 CDP 真包抓取 + 560 个账号（243 个存活）只读探测，证明「1 元 / 7 天试用」是服务端按 `uid` 下发的人群包资格，客户端无任何开关。R475 找到服务端资格标记 `marketing/resource/mget/v2` 的 `exit_retention.activity_id`：`first_purchase_discount` / `free_trial_v2` 即被活动选中，一次请求即可 16.8 秒预筛全池、标记号出单命中率 100%，把原来的 16.7% 抽奖变成两级流水线（先筛标记、再按地区定档）。仓库给出只读判定器、命中出单流水线、80+ 端点 schema，以及 69 条实测证伪记录（含 R478 passport 签名面、退款不回滚、零点不放名额、裂变入口无活动、买退再买、客户端全部开关等）。 |
 
 ## 0. 30 秒读懂
 
@@ -134,7 +134,8 @@ doubao-membership-trial-re/
 │       ├── endpoint_catalog.json     # 端点清单
 │       ├── scan_212_summary.json     # 212 号扫描汇总（uid 已打码）
 │       ├── r478_passport.json          # R478：passport 端点矩阵 + SDK 指纹（已脱敏）
-│       └── r479_passport_sign.json     # R479：sign 算法 + bind 参数矩阵 + 国家列表
+│       ├── r479_passport_sign.json     # R479：sign 算法 + bind 参数矩阵 + 国家列表
+│       └── r480_pool_and_gift.json     # R480：multi_sids / Downloads / 礼品单负结果
 └── tools/                        # 200+ 脚本（同一目录，保证相对导入）
     ├── doubao_yuan.py            # 主 CLI：scan / mint / status / cancel
     ├── intake.py                 # Cookie 池归一化 + 校验
@@ -1058,6 +1059,29 @@ qs   = hex( (",".join(keys)).encode() XOR 0x05 )
 搜 `美国` / `1` / `+1` / `United` 全部 `暂无数据`。R470 里的 `cc=1` 账号不是从这个入口注册的，
 想在客户端上批量造 `cc=1` 新号这条路是死的。
 
+### 10.20 号源与转赠侧收口：四条负结果（R480）
+
+补齐「还能不能捞出更多命中号 / 能不能把 7 天转走」这两条最后的幻想：
+
+**（1）`multi_sids` 里的其它 uid 不是新号源。** 560 条 cookie 里有 424 条带 `multi_sids`，
+解出 **381 个 uid / 433 个 sid**；其中 163 个 uid（171 个 sid）不在 243 活号池里。
+逐个跑 `whoami` + `trade/init`：**只有 3 个 alive，全部 `cc=0`、`disc=0`**，其余 168 个全是
+`710012001 login invalid`。账号切换器里的旧 session 基本都是死的。
+
+**（2）Downloads 的 6675 个 sessionid 也捞不出号。** 全量扫 233 个 CK/JSON/TXT 文件，
+得到 6675 个去重 `sessionid`（其中 4551 个不在原池）。随机抽 120 条 + 三个大文件各抽 40 条，
+**0/240 alive** —— 全是 Dola / 过期号，和 R469 抽 100 条的结论一致。
+
+**（3）`cc=86` 的标记号没有隐藏的 ¥1 档。** 对带 `first_purchase_discount` 的 CN 号
+`4452338580329820` dump 全部 13 张卡：只有 `doubao_personal_std_auto_renew_month`
+有 `disc=3000`（¥38），**13 张卡全部没有 `trial_info`**。CN 标记号的低价档就是 ¥38，不是 ¥1。
+
+**（4）`is_gift_deferred=true` 开不出礼品单。** 用命中号 `trade/create` 带该字段
+（其余参数与正常 ¥1 单一致）→ `611060114 price has been updated`。服务端不接受把试用单做成转赠单。
+
+**（5）库存复验：6/6 仍然活着。** 6 条命中 cookie 全部 `code=0 / disc=6700 / trial_stage=1`，
+建单不消耗、支付才消耗；每个 uid 仍然只有一次 ¥1 机会。
+
 ## 11. 已证伪清单（重要）
 
 这一节是本项目最诚实的部分。以下假设**都做过实验，都失败了**，记录在此避免重复劳动：
@@ -1131,6 +1155,10 @@ qs   = hex( (",".join(keys)).encode() XOR 0x05 )
 | 63 | 美国 `+1` 手机号可以从登录弹窗直接注册 | 点开国家选择器，分别搜 `美国` / `1` / `+1` / `United` | ❌ 只有 `+86`/`+852`/`+853`/`+886` 四项，其余全部 `暂无数据` |
 | 64 | `bind_prefered_lark` 还需要 `a_bogus` | 带正确 `sign`、不带 `a_bogus` 打 bind | ❌ 返回 200（`error_code=3`），`2035` 消失 ⇒ `a_bogus` 不是 bind 的必需项 |
 | 65 | 拿到 `profile_ticket` 就能绑飞书 | `profile_ticket` / `scene` / `third_party_app_id` / `platform` / `open_id+tenant_key` / `access_token` 逐组 | ❌ 全部 `error_code=3 缺少参数`；唯一被接受的是 `code`，`code="test"` → `2087 企业安全策略` |
+| 66 | `multi_sids` 里的其它 uid 是可用号源 | 解析 560 条 cookie，得 381 uid / 433 sid；对池外 163 uid（171 sid）跑 whoami + init | ❌ 仅 3 个 alive，全部 `cc=0`、`disc=0`；其余 168 个 `710012001` |
+| 67 | Downloads 里的 6675 个 sessionid 还能捞出号 | 全量提取 233 个文件；随机 120 条 + 三个大文件各 40 条 whoami | ❌ **0/240 alive**，全是 Dola / 过期号 |
+| 68 | `cc=86` 的标记号藏着 ¥1 档 | 对 `4452338580329820` dump 全部 13 张卡 | ❌ 只有 std 月付 `disc=3000`（¥38），13 张卡全无 `trial_info` |
+| 69 | `is_gift_deferred=true` 能开礼品单转赠 | 命中号 `trade/create` 带 true，其余同正常 ¥1 单 | ❌ `611060114 价格已更新`，服务端拒绝 |
 
 第 10 条是本项目最贵的一刀：用了唯一带资格的账号，¥1 已退，`subscription_id` 归 0，资格永久消失。
 
@@ -1259,6 +1287,7 @@ This repository documents **how the system works**, not how to bypass it. It con
 
 | Round | 内容 |
 |---|---|
+| **R480** | 号源侧收口：`multi_sids` 池外 163 uid 仅 3 alive（全 cc=0）、Downloads 6675 sid 抽 240 全死、cc=86 标记号 13 张卡无 trial（只有 ¥38）、`is_gift_deferred` 被 `611060114` 拒绝；库存 6/6 复验仍 6700/stage=1；新增证伪 #66–#69 |
 | **R479** | passport `sign` 完全复算（sha256，前 10 个排序参数 + body + app_key，6/6 复现）；`bind_prefered_lark` 带正确 sign 后 2035 消失，唯一必需入参是 Lark `code`，`code="test"` 返回 `2087 企业安全策略`；`a_bogus` 不是 bind 必需项；+1 注册不可行（国家列表仅 +86/+852/+853/+886）；新增证伪 #63–#65 |
 | **R478** | passport 域纠正为 `accounts.doubao.com`（`www` 恒 `22 非法应用`）；`bind_ticket/create` 任意 `third_party_app_id` 均出票（TTL 30 min）；`bind_prefered_lark` 过 app 鉴权后卡 `2035`，缺 `sign`/`a_bogus` 本地复算；解出 `account_sdk_source_info` 与 `qs` 均为 `hex(XOR(明文,0x05))`，指纹里 `webdriver:true`；新增 `tools/passport_sdk.py`、证伪 #60–#62 |
 | **R476** | 拆开「展示资源」与「资格」：`resource/frequency/report` 只消费 `exit_retention` 展示（activity_id → None），`trade/init` 的 `6700 / stage=1` 不变（2/2）；`screen.py` 默认改用 `trade/init` ground truth，243 活号复扫确认全池仅 3 个 uid 能出 ¥1；同一 uid 的 activity 会从 `first_purchase_discount` 漂到 `free_trial_v2`；cc=1 7.1% / cc=86 3.1% / cc=852 0.8% / cc=0 0%（20 样本）；新增证伪 #54–#56 |
@@ -1310,4 +1339,4 @@ This repository documents **how the system works**, not how to bypass it. It con
 
 ---
 
-*Last updated: 2026-10-27 (R479) · 目标未达成，继续死磕。*
+*Last updated: 2026-10-27 (R480) · 目标未达成，继续死磕。*
