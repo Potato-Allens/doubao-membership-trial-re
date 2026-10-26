@@ -228,3 +228,11 @@ CDP 抓包（R460）拿到了客户端原始 body，端点本身完全可用。�
 ### K.4 待验（后台任务）
 
 零点名额刷新假设：`_r470_grab.py` 在 23:57 起每 5s 查活动状态、每 120s 对 137 活号全量 `trade/init`，命中即建单。结果见 `_r470_grab.log` / `_r470_hits.jsonl`。
+### K.5 零点名额刷新：证否（R463）
+
+- 23:57–00:04 每 5 s 查 `campaign/page/query`、每 ~120 s 对 **137 个活号**全量 `trade/init`。
+- `page_status` 跨 00:00 **始终为 3**，无翻转；4 轮全量扫描 **hits=0**。
+- `trade/init` + `activity_id=pc_growth_*` / `new_user` / `trial` → 恒 `611080000 beta activity not found`。
+- PC 端 4652 个前端文件里：`activity_id` 硬编码 **0 个**，`campaign_group_code` **0 个**，只有 3 个 `pc_growth_*` 的 `campaign_code`（UG 任务类）。
+
+⇒ **不存在"每日零点放名额"机制**；时间窗假设关闭。
