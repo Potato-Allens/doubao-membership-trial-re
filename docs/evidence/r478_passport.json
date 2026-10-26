@@ -1,0 +1,77 @@
+{
+  "round": "R478",
+  "date": "2026-10-27",
+  "note": "All values are read-only observations. Cookies, tickets, tokens, profile_ticket values and signatures are omitted.",
+  "passport_host": "accounts.doubao.com",
+  "wrong_host_result": {
+    "host": "www.doubao.com",
+    "error_code": 22,
+    "description": "非法应用"
+  },
+  "endpoints": [
+    {
+      "path": "/alice/user/bind_ticket/create",
+      "method": "POST",
+      "body": {"scene": "lark", "third_party_app_id": "1"},
+      "ok": true,
+      "returns": {"ticket_prefix": "bt_", "ttl_ms": 1800000},
+      "note": "third_party_app_id accepts arbitrary strings / empty -> ticket is issued anyway"
+    },
+    {
+      "path": "/alice/user/get_prefered_lark_account_info",
+      "method": "POST",
+      "ok": true,
+      "returns": {"is_bound": false}
+    },
+    {
+      "path": "/alice/user/get_lark_profile_ticket",
+      "method": "POST",
+      "ok": true,
+      "returns": {"expires_in_seconds": 60}
+    },
+    {
+      "path": "/passport/account/info/v2/",
+      "method": "GET",
+      "host": "accounts.doubao.com",
+      "ok": true,
+      "note": "returns the full account profile with passport params"
+    },
+    {
+      "path": "/passport/doubao/web/bind_prefered_lark/",
+      "method": "POST",
+      "host": "accounts.doubao.com",
+      "ok": false,
+      "error_code": 2035,
+      "description": "非法请求",
+      "tried_payload_variants": ["code", "access_token", "profile_ticket", "open_id+tenant_key", "combination"],
+      "missing": ["sign", "a_bogus"],
+      "note": "app auth passes on accounts host; request dies at the signature layer"
+    }
+  ],
+  "signed_params": {
+    "get_oauth_token": ["account_app_language","account_sdk_source","account_sdk_source_info","aid","biz_trace_id","device_platform","is_from_ttaccountsdk","language","multi_login","os_type"],
+    "get_qrcode": ["account_app_language","account_sdk_source","account_sdk_source_info","aid","biz_trace_id","device_platform","fp","is_from_ttaccountsdk","language","multi_login"],
+    "check_qrconnect": ["account_app_language","account_sdk_source","account_sdk_source_info","aid","biz_trace_id","device_platform","fp","is_from_ttaccountsdk","language","multi_login"]
+  },
+  "signature_lengths": {"sign": 64, "a_bogus": 188, "qs": 292},
+  "encoding": {
+    "algorithm": "hex( utf8_plaintext XOR 0x05 )",
+    "fields": ["account_sdk_source_info", "qs"],
+    "tool": "tools/passport_sdk.py"
+  },
+  "sdk_info_sample_sanitized": {
+    "hardwareConcurrency": 24,
+    "webdriver": true,
+    "chromedriver": false,
+    "shelldriver": false,
+    "plugins": 5,
+    "innerHeight": 720,
+    "innerWidth": 1280,
+    "outerHeight": 720,
+    "outerWidth": 1280,
+    "webgl": {"vendor": "Google Inc. (NVIDIA)", "renderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 (0x00002504) Direct3D11 vs_5_0 ps_5_0, D3D11)"},
+    "automation": {"s": "00000000", "c": "0000", "p": "0000000", "s1": "00100000", "c1": "0001", "p1": "0"},
+    "browser": {"t": "7517151403971", "bit_protocol": "", "bit_helper": false}
+  },
+  "conclusion": "The passport binding channel is no longer blocked by app auth; it is blocked by sign/a_bogus. Both are generated client-side by the passport JS SDK (4.4.6)."
+}
