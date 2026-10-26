@@ -5,7 +5,7 @@
 [![Python](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)](#51-安装)
 [![Accounts](https://img.shields.io/badge/sample-212%20accounts-4B5563)](#101-212-个历史账号全量扫描2026-10-26)
 [![Endpoints](https://img.shields.io/badge/endpoints-80%2B-0EA5E9)](#8-接口地图)
-[![Falsified](https://img.shields.io/badge/hypotheses%20falsified-33-DC2626)](#11-已证伪清单重要)
+[![Falsified](https://img.shields.io/badge/hypotheses%20falsified-35-DC2626)](#11-已证伪清单重要)
 [![License](https://img.shields.io/badge/license-Apache--2.0-111827)](LICENSE)
 
 对豆包（Doubao）会员订阅体系做的一次**协议级逆向工程**：静态分析约 41 MB 的前端 bundle、用 CDP 抓 PC 客户端真包、对 212 个历史账号做只读探测与差分，最终把「1 元 / 7 天试用」的判定、下单、支付、退款、取消续费整条链路还原成可复现的代码与数据。
@@ -19,9 +19,9 @@
 | 项 | 内容 |
 |---|---|
 | **英文仓库名** | `doubao-membership-trial-re` |
-| **英文 About（GitHub 描述）** | Protocol-level reverse engineering of Doubao membership: a per-uid eligibility oracle, the full order → pay → refund pipeline, and 33 falsified hypotheses. |
+| **英文 About（GitHub 描述）** | Protocol-level reverse engineering of Doubao membership: a per-uid eligibility oracle, the full order → pay → refund pipeline, and 35 falsified hypotheses. |
 | **建议 Topics** | `reverse-engineering`, `protocol-analysis`, `doubao`, `subscription`, `cdp`, `traffic-analysis`, `python` |
-| **中文介绍** | 对豆包会员订阅体系做协议级逆向：用 41 MB 前端 bundle 静态还原 + PC 客户端 CDP 真包抓取 + 212 个账号只读探测，证明「1 元 / 7 天试用」是服务端按 `uid` 下发的人群包资格，客户端无任何开关。仓库给出只读判定器、命中出单流水线、80+ 端点 schema，以及 33 条实测证伪记录（含命中率 0.73%、退款不回滚、零点不放名额、裂变入口无活动等）。 |
+| **中文介绍** | 对豆包会员订阅体系做协议级逆向：用 41 MB 前端 bundle 静态还原 + PC 客户端 CDP 真包抓取 + 212 个账号只读探测，证明「1 元 / 7 天试用」是服务端按 `uid` 下发的人群包资格，客户端无任何开关。仓库给出只读判定器、命中出单流水线、80+ 端点 schema，以及 35 条实测证伪记录（含命中率 0.73%、退款不回滚、零点不放名额、裂变入口无活动等）。 |
 
 ## 0. 30 秒读懂
 
@@ -112,6 +112,7 @@
 | 命中流水线 | `tools/hunt.py` | 扫池 → 命中即出单 → 落 `hits.jsonl`；`--watch` 常驻、`--no-mint` 只判定不动账号 |
 | 裂变活动探测 | `tools/_r467_fission_probe.py` | `samantha/fission/*` 全套 schema 与入口枚举 |
 | 裂变全池扫描 | `tools/_r467_fission_sweep.py` | 212 号 × `enter_from(0,1)`，找 `show_entrance` |
+| 号源回收 | `tools/_r468_recover_pool.py` | 扫目录树里的 `sessionid=`，按 sid 去重成号池（纯本地） |
 | 协议探测 | `tools/_*.py` | 180+ 个单点探测脚本，每个对应一个假设 |
 
 ---
@@ -647,6 +648,30 @@ POST /biz/activity/get_pop_window?<公共参数>&doubao_device_platform=desktop
 
 ---
 
+### 10.10 号源考古与注册环境（R468）
+
+R468 从磁盘历史里回收 sessionid：1041 个文件 → 508 个 unique sid → 合并成 560 个账号，实测 **243 活**。其中找回 **3 个 6700 资格 uid / 6 条 cookie**。
+
+**3/3 出单**：三个 uid 各 `trade/create` 一次，全部 `code=0`、返回 `pay_url`，`estimated_pay_amount=100` 被接受。
+
+**新事实：建单不消耗资格。** create 后重新 `trade/init`，6/6 条 cookie 仍是 `disc=6700 / trial_stage=1`；只有支付成功才会变成 `2`。
+
+把号池导出的 `src_id` 与 claim DB 的 `iso` / 代理 region join，得到资格与注册环境的强相关：
+
+| 维度 | 样本 | 命中 | 命中率 |
+|---|---|---|---|
+| iso=US | 49 | 5 | **10.2%** |
+| iso=HK | 20 | 3 | **15.0%** |
+| iso=CN | 33 | 0 | **0%** |
+| iso=GB | 3 | 0 | 0% |
+| proxy=US | 71 | 6 | 8.5% |
+| proxy=HK | 70 | 3 | 4.3% |
+| 无代理/未知 | 83 | 0 | **0%** |
+
+⇒ 资格与「**美区/港区注册环境**（境外手机号 + US/HK 出口）」强相关；中国大陆注册的 33 个号全部无资格。人群包在注册时就已经定了，客户端怎么调都没用。
+
+> 限制：向 +852 等境外号 `send_code` 会被 passport 滑块拦截（`1105/1107`），境外号只能走扫码通道注册，无法纯协议批量造号。
+
 ## 11. 已证伪清单（重要）
 
 这一节是本项目最诚实的部分。以下假设**都做过实验，都失败了**，记录在此避免重复劳动：
@@ -686,6 +711,8 @@ POST /biz/activity/get_pop_window?<公共参数>&doubao_device_platform=desktop
 | 31 | `/alice/auth/grant` 可以无单发权益 | 空 `order_id` | ❌ `ECOM_AUTH_INVALID_PARAM / 订单号不能为空` |
 | 32 | `/credit/invite` 是邀请 API | GET | ❌ 返回 HTML 页面（前端路由） |
 | 33 | fission 活动按 uid 定向 | 212 号全量 + 未登录对照 | ❌ 未登录也回 `code=0`；当前无活动，是**活动级**开关 |
+| 34 | 中国大陆注册的号也有机会 | 按 claim DB 的 `iso` 分层 | ❌ iso=CN 33 个号 **0 命中**（US 10.2% / HK 15.0%） |
+| 35 | 建单会消耗资格 | 3 个资格号 create 后复测 6 条 cookie | ❌ 仍 `trial_stage=1`；只有**支付**才消耗 |
 
 第 10 条是本项目最贵的一刀：用了唯一带资格的账号，¥1 已退，`subscription_id` 归 0，资格永久消失。
 
@@ -694,7 +721,7 @@ POST /biz/activity/get_pop_window?<公共参数>&doubao_device_platform=desktop
 ## 12. 边界与限制
 
 - **资格不可造。** 本工具只能"发现"，不能"制造"。
-- **在包率约 0.73%**（本批样本，Wilson 0.13%–4.02%）。规模化只有两条：扩大账号样本，或走学生认证线（需抖音绑定 + 学信网）。
+- **在包率：全池 3/243 ≈ 1.2%**（旧批 1/137 = 0.73%，Wilson 0.13%–4.02%）。分层后差异极大：**iso=US 10.2% / HK 15.0% / CN 0%**（R468）。规模化只有两条：扩大境外注册环境的号源，或走学生认证线（需抖音绑定 + 学信网）。
 - **支付链 30 分钟过期**（`order_expire_seconds=1799`）。
 - **试用到期自动续费 ¥68/月**，务必在 `subscription/cancel` 关闭。
 - **Cookie 会失效**：全量扫描时 35.4% 已 `login invalid`。**号源是当前唯一瓶颈。**
@@ -776,7 +803,8 @@ git grep -nE "sessionid=[A-Za-z0-9]|uid_tt=[A-Za-z0-9]|pay_url=http"   # 应为 
 2. **Inside the cohort ⇒ 100% conversion.** `trade/create` returns a 100-cent (¥1) order. Outside ⇒ `611060114`.
 3. **The trial is single-use and refunds do not restore it.** After a real ¥1 refund, `trial_stage` goes `2 → null`; it never returns to `1`. "Buy → refund → buy again" does not work.
 4. **No observable client-side marker.** Field-level diff across 12 read-only endpoints between the one hit and two ordinary accounts shows zero differences beyond timestamps/URLs. `activities[]` is identical everywhere.
-5. **Hit rate is ~0.73%** (1/137 live accounts; Wilson 95% CI 0.13%–4.02%), i.e. roughly 137 accounts per hit (range 25–775). This is a narrow cohort, not a switch.
+5. **Hit rate is ~1.2%** after recovery (3/243 live accounts; the earlier batch was 1/137 = 0.73%). It is strongly stratified by registration environment: **iso=US 10.2% (5/49), iso=HK 15.0% (3/20), iso=CN 0% (0/33)**. Mainland-registered accounts never hit.
+6. **Order creation does not consume eligibility.** After `trade/create`, all six eligible cookies still return `disc=6700 / trial_stage=1`; only a successful payment flips it to `2`.
 6. **No midnight quota refresh.** Five full sweeps over 137 live accounts between 23:57 and 00:05 produced zero hits; `page_status` never flipped.
 7. **Fission/invite line is currently inactive** (R467). `GET /samantha/fission/entrance` takes an **integer** `enter_from` (`0=Desktop`, `1=Web`); all 212 accounts return `code=0` with `show_entrance=false` and `activity_info=null`. `activity_id` is an integer namespace where every small/guessed value returns `710022001 record not found`. `/alice/auth/grant` requires a real `order_id` (`ECOM_AUTH_INVALID_PARAM` otherwise).
 
@@ -813,6 +841,7 @@ This repository documents **how the system works**, not how to bypass it. It con
 
 | Round | 内容 |
 |---|---|
+| **R468** | 全盘回收 1041 个含 `sessionid` 的文件 → 560 号 / 243 活；找回 3 个资格 uid（+1/+1/+852），3/3 出单；证明建单不消耗资格；iso=US 10.2% / HK 15.0% / CN 0%；新增 `tools/_r468_recover_pool.py` |
 | **R467** | 纠正 `enter_from` 类型：**int 0=Desktop / 1=Web**（字符串 → `671010000`）；212 号 × 2 入口全量扫 → 0 命中；`home_page` 数字命名空间探测（0~1000 / 1e8 全 `record not found`）；`/alice/auth/grant` 需 `order_id`；重写全量 README + 新增两个可复现脚本 |
 | **R466** | 从 41 MB bundle 还原 `samantha/fission/*` 全族（8 端点，含 method 与真实入参）；发现 `/credit/invite`、`/alice/auth/{grant,verify}`、`benefit_supply/fission/join_group`；PC 端 `landpage_click` 实为 `99uri.com/ug/pc/landpage_click` |
 | **R465** | `hunt.py` 命中 ledger（`--no-mint` 也落 `hits.jsonl`，按 `(name,disc)` 去重）；移动端 5 组矩阵、`trade/estimate`、137 号 `activities[]` 三条线全负；命中率统计与 Wilson 区间 |
@@ -842,4 +871,4 @@ This repository documents **how the system works**, not how to bypass it. It con
 
 ---
 
-*Last updated: 2026-10-27 (R467) · 目标未达成，继续死磕。*
+*Last updated: 2026-10-27 (R468) · 目标未达成，继续死磕。*
