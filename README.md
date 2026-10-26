@@ -5,7 +5,7 @@
 [![Python](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)](#51-安装)
 [![Accounts](https://img.shields.io/badge/sample-560%20accounts-4B5563)](#10-实测数据)
 [![Endpoints](https://img.shields.io/badge/endpoints-80%2B-0EA5E9)](#8-接口地图)
-[![Falsified](https://img.shields.io/badge/hypotheses%20falsified-56-DC2626)](#11-已证伪清单重要)
+[![Falsified](https://img.shields.io/badge/hypotheses%20falsified-59-DC2626)](#11-已证伪清单重要)
 [![License](https://img.shields.io/badge/license-Apache--2.0-111827)](LICENSE)
 
 对豆包（Doubao）会员订阅体系做的一次**协议级逆向工程**：静态分析约 41 MB 的前端 bundle、用 CDP 抓 PC 客户端真包、对 212 个历史账号做只读探测与差分，最终把「1 元 / 7 天试用」的判定、下单、支付、退款、取消续费整条链路还原成可复现的代码与数据。
@@ -21,7 +21,7 @@
 | **英文仓库名** | `doubao-membership-trial-re` |
 | **英文 About（GitHub 描述）** | Protocol-level reverse engineering of Doubao membership: a per-uid eligibility oracle, the full order → pay → refund pipeline, and 35 falsified hypotheses. |
 | **建议 Topics** | `reverse-engineering`, `protocol-analysis`, `doubao`, `subscription`, `cdp`, `traffic-analysis`, `python` |
-| **中文介绍** | 对豆包会员订阅体系做协议级逆向：用 41 MB 前端 bundle 静态还原 + PC 客户端 CDP 真包抓取 + 560 个账号（243 个存活）只读探测，证明「1 元 / 7 天试用」是服务端按 `uid` 下发的人群包资格，客户端无任何开关。R475 找到服务端资格标记 `marketing/resource/mget/v2` 的 `exit_retention.activity_id`：`first_purchase_discount` / `free_trial_v2` 即被活动选中，一次请求即可 16.8 秒预筛全池、标记号出单命中率 100%，把原来的 16.7% 抽奖变成两级流水线（先筛标记、再按地区定档）。仓库给出只读判定器、命中出单流水线、80+ 端点 schema，以及 56 条实测证伪记录（含退款不回滚、零点不放名额、裂变入口无活动、买退再买、客户端全部开关等）。 |
+| **中文介绍** | 对豆包会员订阅体系做协议级逆向：用 41 MB 前端 bundle 静态还原 + PC 客户端 CDP 真包抓取 + 560 个账号（243 个存活）只读探测，证明「1 元 / 7 天试用」是服务端按 `uid` 下发的人群包资格，客户端无任何开关。R475 找到服务端资格标记 `marketing/resource/mget/v2` 的 `exit_retention.activity_id`：`first_purchase_discount` / `free_trial_v2` 即被活动选中，一次请求即可 16.8 秒预筛全池、标记号出单命中率 100%，把原来的 16.7% 抽奖变成两级流水线（先筛标记、再按地区定档）。仓库给出只读判定器、命中出单流水线、80+ 端点 schema，以及 59 条实测证伪记录（含退款不回滚、零点不放名额、裂变入口无活动、买退再买、客户端全部开关等）。 |
 
 ## 0. 30 秒读懂
 
@@ -961,6 +961,39 @@ R475 把 `exit_retention` 当成资格标记，R476 把两者的关系拆开了�
 | `852`（香港） | 119 | 1 | 0.8% |
 | `0`（飞书 SSO、无手机号） | 20 | 0 | 0%（样本太小，不下结论） |
 
+### 10.18 出口 IP / 地区参数 / 本机剩余号源：三条负结果（R477）
+
+**（1）换出口 IP 无效。** 用 42 条公开代理里筛出的 7 条可用出口（US×2、HK、SG、NL、FR、CM），
+对同一个未命中号分别打 `subscription/entry/config` 和 `trade/init`：
+
+| 出口 | entry/config `country_code` | trade/init |
+|---|---|---|
+| 美国 Santa Clara（138.68.60.8） | `CN` | `disc=0` |
+| 香港（45.125.64.215） | `CN` | `disc=0` |
+| 直连（CN） | `CN` | `disc=0` |
+
+`country_code` 不随出口 IP 变，报价也不变。**IP 不是闸门。**
+
+**（2）IP + 地区参数一致也无效。** R470 测过 `region`/`sys_region` 矩阵（但都是从 CN 出口打的）。
+R477 补上「美国出口 + `region=US&sys_region=US&language=en`」这个组合：
+仍然是 `country_code=CN`、`disc=0`（US/HK 两条出口各测一遍）。**参数与出口不构成组合开关。**
+
+**（3）本机剩余号源基本枯竭。** 扫了本机全部 Chromium 系 Cookie 库（Chrome `Default/Profile 1–3`、
+豆包客户端 `Default/Profile 3/Profile 4`）：
+
+- Chrome `Default` / 豆包 `Profile 3` 被运行中的进程独占（`PermissionError` / `database is locked`），读不到；
+- 能读到的库里，只有 **1 个 sessionid 不在 560 号池里**：`3506812589980036`，`cc=0`，
+  `trade/init` `disc=0 / stage=null`。又是一个「无手机号 → 无资格」的样本。
+
+**（4）cc=0（飞书 SSO）样本累计 22 个，0 命中。** 20 个池内 + 1 个本机新号 + 1 个扫码入池号。
+按 1.4% 基准率算，22 个全空还有 73% 概率是巧合，**所以还不能判定飞书号永远没资格**；
+但方向上「1 元只发给有手机号的境外号」已经越来越像真的。
+
+**（5）手机绑定接口存在，但需要 passport SDK 的 app 鉴权。**
+`/passport/web/mobile/bind/` 用 AGW 的 `aid=497858` 打会返回 `error_code 22 非法应用`，
+`/passport/mobile/bind/` 返回 `16 该应用无权限`。要走通得拿到 passport 那套 `aid/app_name/iid/
+passport-sdk-version` 参数（登录页里有，但和 commerce 的 scope 是两套）。这条路目前**卡在短信号源**上。
+
 ## 11. 已证伪清单（重要）
 
 这一节是本项目最诚实的部分。以下假设**都做过实验，都失败了**，记录在此避免重复劳动：
@@ -1024,6 +1057,10 @@ R475 把 `exit_retention` 当成资格标记，R476 把两者的关系拆开了�
 | 54 | `mget/v2` 带 `is_eligible_for_intro_offer=true` 能拿到 intro 报价 | 未命中号传 true/false 各一次 | ❌ 两次都 `results:{}`，字段被服务端完全忽略 |
 | 55 | 换设备指纹能「变成」新用户拿资格 | 未命中号整套替换 `device_id`/`iid`/`install_id`/`webid`/`web_id`/`tea_web_id`/`cdid` | ❌ mget 与 trade/init 均无变化（3/3） |
 | 56 | 看过挽留弹窗（frequency/report）会消耗 1 元资格 | 2 个命中号各打一次 report 前后对比 | ❌ 只消费**展示资源**（activity_id → None），`trade/init` 仍是 `6700 / stage=1` |
+
+| 57 | 换境外出口 IP 能改资格 | 7 条可用代理（US×2/HK/SG/NL/FR/CM）× 未命中号 | ❌ `entry/config.country_code` 恒 `CN`，`trade/init` 恒 `disc=0` |
+| 58 | 境外 IP + `region=US&sys_region=US&language=en` 组合能触发 | US/HK 两条出口各测一轮 | ❌ 与直连完全一致（`disc=0`），参数和出口都不构成开关 |
+| 59 | 本机还有别的 Cookie 库能捞出可用号 | 扫 Chrome 4 个 Profile + 豆包客户端 3 个 Profile | ❌ 只多 1 个新 sessionid（`cc=0`，`disc=0`）；另有两个库被运行中进程锁住读不到 |
 
 第 10 条是本项目最贵的一刀：用了唯一带资格的账号，¥1 已退，`subscription_id` 归 0，资格永久消失。
 
@@ -1153,6 +1190,7 @@ This repository documents **how the system works**, not how to bypass it. It con
 | Round | 内容 |
 |---|---|
 | **R476** | 拆开「展示资源」与「资格」：`resource/frequency/report` 只消费 `exit_retention` 展示（activity_id → None），`trade/init` 的 `6700 / stage=1` 不变（2/2）；`screen.py` 默认改用 `trade/init` ground truth，243 活号复扫确认全池仅 3 个 uid 能出 ¥1；同一 uid 的 activity 会从 `first_purchase_discount` 漂到 `free_trial_v2`；cc=1 7.1% / cc=86 3.1% / cc=852 0.8% / cc=0 0%（20 样本）；新增证伪 #54–#56 |
+| **R477** | 出口 IP（US×2/HK/SG/NL/FR/CM）+ `region=US` 组合全部无效（`country_code` 恒 CN、`disc=0`）；本机 Chromium 系 Cookie 库补扫只多 1 个 `cc=0` 新号（0 命中）；飞书 SSO 样本累计 22 个 0 命中；`/passport/*/mobile/bind/` 存在但需 passport SDK app 鉴权（`非法应用/该应用无权限`）；新增证伪 #57–#59 |
 | **R475** | 找到服务端资格标记：`marketing/resource/mget/v2` 的 `exit_retention.activity_id` ∈ {`first_purchase_discount`,`free_trial_v2`} ⇒ 被 1 元活动选中（境外直接 6700）；243 活号预筛 16.8 s、9 个标记、3 个境外全部 6700；新增 `tools/screen.py`（1 请求/号）与 `tools/watch_activity.py`（标记活性观测） |
 | **R473–R474** | 9 条分桶信号全负（uid 取模 / AB / banner / 会话数 / intake / 桌面口径 / `activity_id`×6+`entry_method`×3 / `auth/grant` 死代码 / 真机 PC 登录）；新增 `tools/stock.py`（库存复验 + 扫码自动入库 + 按需出码，当前 STOCK=3 uid） |
 | **R472** | 客户端侧收口：`resources.pak`（14.7 MB）`alice`/`eligibility`/`campaign` **0 命中**；`local_webcontents` 2322 文件里 `ai-views` 467 条 alice 路径、62 条 commerce **与 web 端完全重合**；`intro_offer` 只是 `trade/create|estimate` 入参；新增 `tools/qr_batch.py`（循环扫码 → 判资格 → 出码，`--stop-on-hit`） |
