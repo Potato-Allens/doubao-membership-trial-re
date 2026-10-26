@@ -762,6 +762,48 @@ POST /alice/commerce/marketing/resource/mget/v2/          {"resource_keys":["sub
 
 **号源：Desktop 大盘（4554 条）** 全量 `trade/init` 快速筛：`710012001` 2689 条、活 2 条、命中 0 条，其余 1863 条超时重试中。这条线也基本是死的。
 
+### 10.13 候选漏斗：先分流再出单（R471）
+
+R470 只知道「境外号 + 零订阅」看起来相关。R471 把它做成了全量对照，并抽成工具 `tools/triage.py`（先查 `country_code` 与订阅记录，只对候选号打 `trade/init`）。
+
+**560 条全池漏斗（一次跑完 33.5 s）**
+
+| 阶段 | 数量 | 占比 |
+|---|---|---|
+| 池子总量 | 560 | 100% |
+| 会话仍有效（拿得到档案） | 243 | 43.4% |
+| 境外号（cc=1/852/44） | 143 | 25.5% |
+| **境外 + 零订阅记录（候选）** | **27 行 / 18 uid** | 3.2% |
+| **候选里命中 1 元** | **6 行 / 3 uid** | **16.7%（uid 口径）** |
+
+对照：不做分流时，243 活号的命中率是 1.2%（3/243）。先按「境外 + 零订阅」分流，候选池的 uid 命中率是 **16.7%**，注意力集中了 **14 倍**，扫描成本降到 33.5 s/全池。
+
+**订阅记录是最强的一道闸**
+
+243 个活号按 `country_code × 订阅记录` 分格（行数 / 命中）：
+
+| cc | 零订阅 | 有订阅记录 |
+|---|---|---|
+| 86 | 57 / **0** | 22 / 0 |
+| 0 | 5 / 0 | 15 / 0 |
+| 1 | 17 / **4** | 3 / 0 |
+| 852 | 9 / **2** | 114 / 0 |
+| 44 | 1 / 0 | 0 / 0 |
+
+两条硬结论：
+
+1. **`cc=86`（大陆号）零订阅也 0 命中**（57 行全灭）——号码归属地是硬门槛。
+2. **有订阅记录的境外号 0 命中**（117 行全灭）——历史免费会员（那批「领码」活动发的）会把首购资格顶掉。
+
+反过来，18 个「境外 + 零订阅」的 uid 里 3 个有资格，剩下 15 个依然没有。这 15 个和命中的 3 个在**所有可观测量上完全一致**（档案字段、`entry/config`、`activities`、`has_history_paid_subscription`、`entitlement_claim_status` 全同），所以最后一道闸仍然是服务端发放，客户端看不见。
+
+**用法**
+
+```bash
+python tools/triage.py --pool pool.json -c 10              # 只分流，最省
+python tools/triage.py --pool pool.json -c 10 --with-init   # 候选号再打 trade/init
+```
+
 ## 11. 已证伪清单（重要）
 
 这一节是本项目最诚实的部分。以下假设**都做过实验，都失败了**，记录在此避免重复劳动：
@@ -809,6 +851,8 @@ POST /alice/commerce/marketing/resource/mget/v2/          {"resource_keys":["sub
 | 39 | 学生权益可以领 | `sale/student/{verify_info,verify_url,entitlement/receive}` | ❌ 全 `611060180 student douyin account required` |
 | 40 | `ug/campaign/*` 能领「下载 PC 端 5 天」 | 5 个 group 猜测 + 4 个 scene + `v3/detail` | ❌ `code=2 campaign not found`；landing 返回空页面 |
 | 41 | 卡券里能开出会员体验卡 | `marketing/card/list`、`card/balance`（命中 vs 普通） | ❌ 只有 `quota_reset_card`（额度重置），与会员无关 |
+| 42 | 用过免费会员的号还能拿 1 元 | 243 活号全量 `subscription/list` 对齐 | ❌ 有订阅记录的 117 个境外行 **0 命中**；资格被历史免费会员顶掉 |
+| 43 | 境外 + 零订阅就够了 | 18 个候选 uid 全量复核 | ❌ 只有 3 个命中（16.7%），其余 15 个可观测量与命中号完全一致，仍在服务端 |
 
 第 10 条是本项目最贵的一刀：用了唯一带资格的账号，¥1 已退，`subscription_id` 归 0，资格永久消失。
 
@@ -937,6 +981,7 @@ This repository documents **how the system works**, not how to bypass it. It con
 
 | Round | 内容 |
 |---|---|
+| **R471** | 候选漏斗：560 → 活 243 → 境外 143 → **境外+零订阅 27 行/18 uid** → 命中 6 行/3 uid（**16.7%**，比全池 1.2% 高 14 倍）；证明 `cc=86` 零订阅也 0 命中、有订阅记录的境外号 0 命中；新增 `tools/triage.py`（33.5 s 跑完全池） |
 | **R470** | 账号档案 `passport/account/info/v2` 对齐 243 活号：`country_code` 1/852 才有命中（86 的 79 行 0 命中），但境外 143 行也只中 6 行 →资格是**按 uid 发放的独立 eligibility 记录**（3 个号 3 个不同 id）；7 组 region 矩阵无效；`student/*`、`ug/campaign/*`、`marketing/card/*` 全负；CDP 抓到会员页真实调用序列（5 个请求，无隐藏开关）；Desktop 4554 条只活 2 条 0 命中 |
 | **R469** | `trade/init` 全字段递归 diff：命中 vs 普通**只有 9 处差异**，全在 `sku_list[1].purchase_card_list[0]`，`activities` 两号一致 → 无客户端人群标记；`Downloads` 2186 个 sid 抽 100 → 100/100 `710012001`（Dola 号，弃）；Chrome 136 profile 全解（DPAPI + AES-GCM，明文需 `[32:]`）→ 仅 4 条新 sid；新增 `tools/_r469_diff.py`、`tools/_r469_chromedb.py` |
 | **R468** | 全盘回收 1041 个含 `sessionid` 的文件 → 560 号 / 243 活；找回 3 个资格 uid（+1/+1/+852），3/3 出单；证明建单不消耗资格；iso=US 10.2% / HK 15.0% / CN 0%；新增 `tools/_r468_recover_pool.py` |
@@ -968,8 +1013,9 @@ This repository documents **how the system works**, not how to bypass it. It con
 | 全字段差分（命中 vs 普通） | `tools/_r469_diff.py` |
 | 本地 Chrome profile 取 cookie | `tools/_r469_chromedb.py` |
 | 资格 vs 手机国家码（243 活号） | `docs/evidence/r470_country_code.json` |
+| 候选漏斗（境外 + 零订阅） | `tools/triage.py` |
 | 错误码对照 | 本文 §9、`docs/PROTOCOL.md` §12.2 |
 
 ---
 
-*Last updated: 2026-10-27 (R470) · 目标未达成，继续死磕。*
+*Last updated: 2026-10-27 (R471) · 目标未达成，继续死磕。*

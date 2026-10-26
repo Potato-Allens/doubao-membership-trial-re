@@ -414,3 +414,26 @@ bundle 里的枚举定义是：
 marketing/subscribe/init、marketing/resource/mget/v2），无隐藏开关。
 
 **6. Desktop 大盘 4554 条**：`710012001` 2689、活 2、命中 0（1863 条超时另跑）。
+
+## N. R471：候选漏斗（境外 + 零订阅）
+
+560 行全池用 `tools/triage.py` 一次分流（33.5 s）：
+
+| 阶段 | 数量 |
+|---|---|
+| 池 | 560 |
+| 会话有效 | 243 |
+| 境外（cc=1/852/44） | 143 |
+| 境外 + 零订阅（候选） | 27 行 / 18 uid |
+| 候选里命中 1 元 | 6 行 / 3 uid（**16.7%** uid 口径） |
+
+`country_code × 订阅记录`（行数/命中）：86: 57/0、22/0；0: 5/0、15/0；1: 17/4、3/0；852: 9/2、114/0；44: 1/0。
+
+两条硬结论：
+1. `cc=86` 零订阅也 0 命中 → 号码归属地是硬门槛。
+2. 有订阅记录的境外号 117 行 0 命中 → 历史免费会员顶掉首购资格。
+
+剩余 15 个候选与命中号在所有可观测量上完全一致（档案、entry/config、activities、has_history_paid_subscription、
+entitlement_claim_status），末道闸仍是服务端按 uid 发放。
+
+证据：`docs/evidence/r471_triage.json`；工具：`tools/triage.py`。
