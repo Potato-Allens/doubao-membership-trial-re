@@ -1,0 +1,97 @@
+{
+ "round": "R482",
+ "ts": 1793044492,
+ "goal": "enumerate activity/popup/reward write surfaces for a per-uid grant; test client price forgery",
+ "mget_frequency_cap": {
+  "note": "hit1_1 and hit3_1 returned empty results while trade/init stayed 6700/stage=1; hit2_1..3 returned free_trial_v2 popup",
+  "hit2_popup": {
+   "activity_id": "free_trial_v2",
+   "button_approve_key": "primary_btn_pay_now",
+   "gift_type": "free_trial",
+   "top_discount_type": "2"
+  }
+ },
+ "mget_intro_flag": {
+  "tested": "none/false/true on 1 hit + 8 controls",
+  "effect": "none"
+ },
+ "trade_init_activity_id": {
+  "candidates": [
+   "free_trial_v2",
+   "first_purchase_discount",
+   "free_trial_v2_exit_retention",
+   "free_trial_v2_exit_retention_v1",
+   "first_purchase_discount_exit_retention",
+   "first_purchase_discount_exit_retention_v1",
+   "renewal_guidance_v1_exit_retention_v1",
+   "free_trial",
+   "intro_offer_v1"
+  ],
+  "result": "611080000 beta activity not found (or 611060900 rate limit); discount stays 0 on cc=0 / cc=852"
+ },
+ "campaign_endpoints": {
+  "page_query": {
+   "hit": {
+    "page_status": 3,
+    "page_type": 0
+   },
+   "ctl0": {
+    "page_status": 3,
+    "page_type": 0
+   },
+   "ctl852": {
+    "page_status": 3,
+    "page_type": 0
+   }
+  },
+  "trial_init": "710010702 system error (hit and control)",
+  "fixed_subscription_claim": "710010702 system error (hit and control)",
+  "resolve_fixed_cta": "611070003 cta no matched policy",
+  "activity_detail": "channel: invalid for 5 keys x 12 channels"
+ },
+ "student_entitlement": "611060180 student douyin account required",
+ "price_forgery": {
+  "body": {
+   "estimated_pay_amount": "100",
+   "is_eligible_for_intro_offer": true
+  },
+  "ctl0": "611060114 price has been updated",
+  "ctl852": "611060114 price has been updated",
+  "hit2_1": "code=0, order_id=7701049595367358490"
+ },
+ "registration": {
+  "endpoint": "/passport/web/send_code/",
+  "type": 1,
+  "mobile": "+85200000000",
+  "result": "1105 slide captcha, verify_center_decision_conf subtype=slide"
+ },
+ "cohort": {
+  "hit_uids": [
+   "639260239604313",
+   "3999391513351705",
+   "2416094733678572"
+  ],
+  "shared_profile": {
+   "hm": 2,
+   "appid": 497858,
+   "odin": 12,
+   "pw": 0,
+   "mob": "+1 / +852"
+  },
+  "alive_in_profile": 144,
+  "hit_uids_in_profile": 3,
+  "rate": 0.021,
+  "day_2026_10_13": {
+   "alive": 21,
+   "hit_uids": 2,
+   "ct_range": "12:28-22:26 UTC",
+   "conclusion": "interleaved, not a time window"
+  }
+ },
+ "tcc": {
+  "aid": 497858,
+  "settings_keys": 1155,
+  "campaign_popup_keys": 0
+ },
+ "stock_recheck": "6/6 disc=6700 stage=1 at 2026-10-27T03:39+08:00"
+}

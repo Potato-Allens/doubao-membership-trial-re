@@ -5,7 +5,7 @@
 [![Python](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)](#51-安装)
 [![Accounts](https://img.shields.io/badge/sample-560%20accounts-4B5563)](#10-实测数据)
 [![Endpoints](https://img.shields.io/badge/endpoints-80%2B-0EA5E9)](#8-接口地图)
-[![Falsified](https://img.shields.io/badge/hypotheses%20falsified-70-DC2626)](#11-已证伪清单重要)
+[![Falsified](https://img.shields.io/badge/hypotheses%20falsified-83-DC2626)](#11-已证伪清单重要)
 [![License](https://img.shields.io/badge/license-Apache--2.0-111827)](LICENSE)
 
 对豆包（Doubao）会员订阅体系做的一次**协议级逆向工程**：静态分析约 41 MB 的前端 bundle、用 CDP 抓 PC 客户端真包、对 212 个历史账号做只读探测与差分，最终把「1 元 / 7 天试用」的判定、下单、支付、退款、取消续费整条链路还原成可复现的代码与数据。
@@ -21,7 +21,7 @@
 | **英文仓库名** | `doubao-membership-trial-re` |
 | **英文 About（GitHub 描述）** | Protocol-level reverse engineering of Doubao membership: a per-uid eligibility oracle, the full order → pay → refund pipeline, and 70 falsified hypotheses. |
 | **建议 Topics** | `reverse-engineering`, `protocol-analysis`, `doubao`, `subscription`, `cdp`, `traffic-analysis`, `python` |
-| **中文介绍** | 对豆包会员订阅体系做协议级逆向：用 41 MB 前端 bundle 静态还原 + PC 客户端 CDP 真包抓取 + 560 个账号（243 个存活）只读探测，证明「1 元 / 7 天试用」是服务端按 `uid` 下发的人群包资格，客户端无任何开关。R475 找到服务端资格标记 `marketing/resource/mget/v2` 的 `exit_retention.activity_id`：`first_purchase_discount` / `free_trial_v2` 即被活动选中，一次请求即可 16.8 秒预筛全池、标记号出单命中率 100%，把原来的 16.7% 抽奖变成两级流水线（先筛标记、再按地区定档）。仓库给出只读判定器、命中出单流水线、80+ 端点 schema，以及 70 条实测证伪记录（含 R478 passport 签名面、退款不回滚、零点不放名额、裂变入口无活动、买退再买、客户端全部开关等）。 |
+| **中文介绍** | 对豆包会员订阅体系做协议级逆向：用 41 MB 前端 bundle 静态还原 + PC 客户端 CDP 真包抓取 + 560 个账号（243 个存活）只读探测，证明「1 元 / 7 天试用」是服务端按 `uid` 下发的人群包资格，客户端无任何开关。R475 找到服务端资格标记 `marketing/resource/mget/v2` 的 `exit_retention.activity_id`：`first_purchase_discount` / `free_trial_v2` 即被活动选中，一次请求即可 16.8 秒预筛全池、标记号出单命中率 100%，把原来的 16.7% 抽奖变成两级流水线（先筛标记、再按地区定档）。仓库给出只读判定器、命中出单流水线、80+ 端点 schema，以及 83 条实测证伪记录（含 R478 passport 签名面、退款不回滚、零点不放名额、裂变入口无活动、买退再买、客户端全部开关等）。 |
 
 ## 0. 30 秒读懂
 
@@ -1087,6 +1087,65 @@ qs   = hex( (",".join(keys)).encode() XOR 0x05 )
 **（6）库存复验：6/6 仍然活着。** 6 条命中 cookie 全部 `code=0 / disc=6700 / trial_stage=1`，
 建单不消耗、支付才消耗；每个 uid 仍然只有一次 ¥1 机会。
 
+### 10.21 活动/弹窗/领奖面穷举：十三条负结果（R482）
+
+目标很明确：既然资格按 uid 下发，就找「申请资格 / 领活动 / 弹窗领取 / 学生权益」的写接口。
+把 `52.218d30632f.js`、`8.6ab1166120.js` 与会员页 `member.fcc59a27.js` 里的 commerce / UG
+路由全部拉出来，逐个打穿：
+
+**（1）`exit_retention` 是展示资源，不是资格开关。** 命中号 `hit1_1` / `hit3_1` 的 mget
+返回空（frequency cap），但同一时刻 `trade/init` 仍是 `6700 / stage=1`；`hit2_*` 三条 cookie
+仍返回 `free_trial_v2` 弹窗。⇒ 资源被消费不等于资格消失，**mget 返回值不能当资格判据**。
+
+**（2）弹窗 CTA 不携带额外活动参数。** `data` 明文：`button_approve_key=primary_btn_pay_now`、
+`gift_type=free_trial`、`top_discount_type=2`。按钮只是跳到会员页，而会员页默认的
+`trade/init`（`scene_key=default_member_link`）本来就返回 6700 —— 不需要从弹窗再带 `activity_id`。
+
+**（3）mget 的 `is_eligible_for_intro_offer` 三态无效。** none / false / true 在 1 个命中号
+与 8 个对照号（cc=0/86/852）上结果完全一致，资源与 `trade/init` 均无变化。
+
+**（4）`trade/init` 的 `activity_id` 空间打不进去。** `free_trial_v2`、`first_purchase_discount`、
+`free_trial_v2_exit_retention(_v1)`、`first_purchase_discount_exit_retention(_v1)`、
+`renewal_guidance_v1_exit_retention_v1`、`free_trial`、`intro_offer_v1` 共 7 个值，在 cc=0 与
+cc=852 上全部 `611080000 beta activity not found`（或限流），`disc` 恒 0。⇒ 确实存在一个
+「beta 活动 id」空间，但 `exit_retention` 的枚举不是它的 key。
+
+**（5）`campaign/page/query` 无差异。** 命中号与两个对照号都返回
+`{page_status:3, page_type:0}`。
+
+**（6）`campaign/trial/init` / `campaign/fixed_subscription/claim` 不开单。** 命中号 `hit2_1`
+与 cc=0 对照都是 `710010702 系统错误`（空 body），不会创建试用单。
+
+**（7）`cta/resolve_fixed_cta` 无策略。** `scene_key=default_member_link` +
+`sku_key=doubao_personal_std` → `611070003 cta no matched policy`，三类号一致。
+
+**（8）`marketing/activity/detail` 没有合法 channel。** 5 个 `activity_key` × 12 个 channel
+全部 `channel: invalid`，没有任何值能进到业务层。
+
+**（9）学生权益要抖音学生身份。** `student/entitlement/receive` 与 `student/verify_info` 都回
+`611060180 student douyin account required`，不可绕过。
+
+**（10）客户端报价伪造被服务端重算挡住。** 对 cc=0 与 cc=852 号直接 `trade/create`，body 带
+`estimated_pay_amount="100"`、`is_eligible_for_intro_offer=true` → `611060114 price has been
+updated`，不返回 `order_id`；命中号同 body 正常出单。⇒ 价格 100% 服务端重算，客户端字段只用于
+「确认价格」，不是入参。
+
+**（11）手机注册与邮箱注册共用同一个滑块闸门。** `POST /passport/web/send_code/`（type=1，
++852 测试号）同样返回 `1105 滑动滑块进行验证`，`verify_center_decision_conf` 仍是
+`subtype: slide`。⇒ 不是邮箱特有，换手机号也绕不开。
+
+**（12）人群包画像是「境外注册 + 随机抽样」，不是确定条件。** 3 个命中 uid 全部
+`hm=2 / appid=497858 / odin=12 / pw=0 / 境外手机号（+1、+852）`；但该画像的 144 个活号里只有
+3 个命中（2.1%）。2026-10-13 当天 21 个活号里 2 个命中，注册时间从 12:28 到 22:26 交错分布，
+**不是时间窗**。⇒ 无法用「满足条件就必出」复现。
+
+**（13）TCC `settings/v3` 里没有活动配置。** `aid=497858` 返回 1155 个配置项，没有
+campaign / popup / season 键；`pc_activity_channel_campaigns` 不在 settings 里，客户端也没把它
+落到 localStorage。
+
+结论：活动 / 弹窗 / 领奖 / 学生 / 报价五条面全负。唯一还活着的写接口是「支付成功」，而支付前置的
+资格由服务端按 uid 抽样，客户端没有开关。
+
 ## 11. 已证伪清单（重要）
 
 这一节是本项目最诚实的部分。以下假设**都做过实验，都失败了**，记录在此避免重复劳动：
@@ -1165,6 +1224,19 @@ qs   = hex( (",".join(keys)).encode() XOR 0x05 )
 | 68 | `cc=86` 的标记号藏着 ¥1 档 | 对 `4452338580329820` dump 全部 13 张卡 | ❌ 只有 std 月付 `disc=3000`（¥38），13 张卡全无 `trial_info` |
 | 69 | `is_gift_deferred=true` 能开礼品单转赠 | 命中号 `trade/create` 带 true，其余同正常 ¥1 单 | ❌ `611060114 价格已更新`，服务端拒绝 |
 | 70 | 带真实浏览器 cookie 打 email/send_code 可以免滑块 | mail.tm 临时邮箱 + 浏览器上下文（`s_v_web_id`/csrf）调用 send_code | ❌ 仍 `1105 滑动滑块进行验证`（`subtype: slide`） |
+| 71 | mget 返回空就代表资格没了 | 命中号 hit1_1 / hit3_1 mget 返回空，同时打 trade/init | ❌ 仍是 `6700 / stage=1`；`exit_retention` 只是 frequency-capped 展示资源 |
+| 72 | 弹窗 CTA 会带一个额外的 activity_id 才能出 1 元 | 解析 `free_trial_v2` 弹窗 `data` 并对照会员页默认 init | ❌ CTA 只有 `primary_btn_pay_now`；默认 `default_member_link` 已返回 6700 |
+| 73 | mget 传 `is_eligible_for_intro_offer=true` 能解锁 1 元资源 | 1 命中 + 8 对照 × none/false/true | ❌ 资源与 trade/init 完全不变 |
+| 74 | `trade/init` 的 `activity_id` 传资源枚举就能进 beta 活动 | 7 个候选（free_trial_v2 / *_exit_retention / renewal_guidance_v1…）× cc=0/852 | ❌ 全部 `611080000 beta activity not found`，disc 恒 0 |
+| 75 | `campaign/page/query` 能区分命中号 | 命中号 vs cc=0 vs cc=852 | ❌ 全部 `{page_status:3, page_type:0}` |
+| 76 | `campaign/trial/init` / `fixed_subscription/claim` 能白拿试用 | 命中号与对照号各打一次（空 body） | ❌ 全部 `710010702 系统错误`，不建单 |
+| 77 | `cta/resolve_fixed_cta` 有隐藏的 1 元 CTA 策略 | `default_member_link` + `doubao_personal_std` | ❌ `611070003 cta no matched policy`（三类号一致） |
+| 78 | `marketing/activity/detail` 换 channel 能进活动详情 | 5 key × 12 channel | ❌ 全部 `channel: invalid`，没有一个合法 channel |
+| 79 | 学生权益可以不验证抖音身份领取 | `student/entitlement/receive` / `verify_info` | ❌ `611060180 student douyin account required` |
+| 80 | 客户端把 `estimated_pay_amount` 改成 100 就能 1 元下单 | cc=0 / cc=852 直接 trade/create 传 `"100"` + intro flag | ❌ `611060114 price has been updated`；服务端重算，命中号同 body 才出单 |
+| 81 | 手机号注册可以绕过邮箱的滑块 | `/passport/web/send_code/` type=1，+852 测试号 | ❌ 同样 `1105 滑块`（`subtype: slide`），两条注册通道共用闸门 |
+| 82 | 境外注册画像满足条件就必出 1 元 | 画像 `hm=2/appid=497858/odin=12/pw=0/境外手机` 的 144 个活号 | ❌ 仅 3 个命中（2.1%）；10-13 当天 21 活号 2 命中且注册时间交错 ⇒ 随机抽样，非确定条件 |
+| 83 | TCC `settings/v3` 里能读到活动/弹窗配置 | aid=497858 全量 1155 项 | ❌ 无 campaign / popup / season 键；客户端 localStorage 也无 `pc_activity_channel_campaigns` |
 
 第 10 条是本项目最贵的一刀：用了唯一带资格的账号，¥1 已退，`subscription_id` 归 0，资格永久消失。
 
@@ -1293,6 +1365,7 @@ This repository documents **how the system works**, not how to bypass it. It con
 
 | Round | 内容 |
 |---|---|
+| **R482** | 活动/弹窗/领奖面穷举 13 条负：`exit_retention` 空返回仍 6700（展示资源）、mget intro flag 三态无效、`trade/init` 7 个 activity_id 全 `611080000`、`campaign/page/query` 恒 page_status 3、`campaign/trial/init`+`fixed_subscription/claim` 系统错误、CTA 无策略、`activity/detail` 无合法 channel、学生权益需抖音、`trade/create` 传 100 被 `611060114` 重算、手机 send_code 同 1105 滑块、境外画像 2.1% 随机、TCC 无活动键；新增证伪 #71–#83 |
 | **R480** | 号源侧收口：`multi_sids` 池外 163 uid 仅 3 alive（全 cc=0）、Downloads 6675 sid 抽 240 全死、cc=86 标记号 13 张卡无 trial（只有 ¥38）、`is_gift_deferred` 被 `611060114` 拒绝；库存 6/6 复验仍 6700/stage=1；新增证伪 #66–#70；邮箱 send_code 带浏览器 cookie 仍 1105 滑块 |
 | **R479** | passport `sign` 完全复算（sha256，前 10 个排序参数 + body + app_key，6/6 复现）；`bind_prefered_lark` 带正确 sign 后 2035 消失，唯一必需入参是 Lark `code`，`code="test"` 返回 `2087 企业安全策略`；`a_bogus` 不是 bind 必需项；+1 注册不可行（国家列表仅 +86/+852/+853/+886）；新增证伪 #63–#65 |
 | **R478** | passport 域纠正为 `accounts.doubao.com`（`www` 恒 `22 非法应用`）；`bind_ticket/create` 任意 `third_party_app_id` 均出票（TTL 30 min）；`bind_prefered_lark` 过 app 鉴权后卡 `2035`，缺 `sign`/`a_bogus` 本地复算；解出 `account_sdk_source_info` 与 `qs` 均为 `hex(XOR(明文,0x05))`，指纹里 `webdriver:true`；新增 `tools/passport_sdk.py`、证伪 #60–#62 |
