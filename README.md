@@ -824,6 +824,34 @@ python tools/qr_batch.py --rounds 20 --timeout 300   # 连续 20 轮
 python tools/qr_batch.py --rounds 5 --stop-on-hit    # 命中即停
 ```
 
+### 10.15 库存化：把「抽奖」做成「保底」（R473/R474）
+
+R473/R474 把最后 9 条「可能是分桶信号」的假设全试了，全部为负：
+
+| 假设 | 做法 | 结果 |
+|---|---|---|
+| uid 取模分桶 | 模数 2..2000 + 全部 2 的幂，拿 3 命中 vs 240 未命中做分割 | ❌ 没有任何模数能分开 |
+| A/B 实验决定资格 | `mcs.doubao.com/service/2/abtest_config/` 命中 vs 未命中逐字段比 | ❌ 61 个 AB 键完全相同，且**一个 commerce 键都没有** |
+| 「下载电脑版」banner | `/alice/basic/launch` 的 `show_desktop_download_banner` | ❌ 命中 1/3 为 True、未命中 5/15 为 False，无相关性 |
+| 使用强度决定资格 | `/im/chain/recent_conv` 会话数 | ❌ 18/18 全是 0（`712012002`） |
+| intake 权益视图 | `/alice/commerce/intake/entitlement/query` scene 0..40 | ❌ 只有 scene=1 回同一枚 device fingerprint |
+| 桌面口径请求 | `device_platform=desktop` + `aid=582478` + `qr_source_aid=582478` + win/mac | ❌ 5 组全 `disc=0` |
+| `trade/create` 带活动参数 | `activity_id` × 6（`pc_membership_campaign_2026` 等）+ `entry_method` × 3 | ❌ `611080000 beta activity not found` / `611060114 price has been updated`（服务端按 6800 重算） |
+| `/alice/auth/grant` 跨账号转移 | 用命中号的真实 `order_id` 给未命中号调用 | ❌ `ECOM_AUTH_INVALID_PARAM`；该 API 在 41 MB bundle 里 **0 个调用点**（死代码） |
+| 真机 PC 客户端登录发资格 | 客户端在线号 `2187396333184651`（cc=1，10-26 起常驻） | ❌ `trade/init` 仍 `disc=0` ⇒ 1 元资格**不是**「登录电脑版」触发 |
+
+**库存化工具 `tools/stock.py`**（三件事：实时复验 / 扫码自动入库 / 按需出码）：
+
+```bash
+python stock.py                       # 库存快照（read-only，不建单）
+python stock.py --refresh             # 把 live_intake.jsonl 里新扫的号验一遍，命中自动写回 pool/hits_1yuan.json
+python stock.py --mint --qr pay.png   # 从库存取一个，直接出 ¥1 支付链接 + 二维码
+```
+
+当前库存：**3 个 uid / 6 条 cookie**，全部 `disc=6700, trial_stage=1`。建单不消耗资格，只有**支付成功**才把 `stage` 推到 2，所以这 3 个号可以反复出码，直到某一次真的付款。
+
+**为什么这叫「保底」而不是「百分百」**：资格仍由服务端按 uid 发放，客户端侧 52 条证伪（§11）已经封死。库存化的意义是——**永远不把没验过的号递出去**：出码那一刻，链接上写的就是 ¥1。
+
 ## 11. 已证伪清单（重要）
 
 这一节是本项目最诚实的部分。以下假设**都做过实验，都失败了**，记录在此避免重复劳动：
@@ -875,6 +903,13 @@ python tools/qr_batch.py --rounds 5 --stop-on-hit    # 命中即停
 | 43 | 境外 + 零订阅就够了 | 18 个候选 uid 全量复核 | ❌ 只有 3 个命中（16.7%），其余 15 个可观测量与命中号完全一致，仍在服务端 |
 | 44 | 客户端 `resources.pak` 里藏着活动 / 资格接口 | 14.7 MB 二进制扫 `alice` / `eligibility` / `campaign` | ❌ 三个关键词全 **0 命中** |
 | 45 | 客户端扩展里有 web 端没有的私有接口 | `ai-views` 467 条 alice 路径与 web 端比对 | ❌ 与 web 端 67 条**完全重合**，无新增 |
+| 46 | uid 取模 / 分桶决定资格 | 模数 2..2000 + 2 的幂，3 命中 vs 240 未命中 | ❌ 无任何模数可分 |
+| 47 | A/B 实验桶决定资格 | `mcs` abtest_config 命中 vs 未命中 | ❌ 61 键全同，无 commerce 键 |
+| 48 | 桌面口径请求能触发资格 | `device_platform=desktop` + `aid/qr_source_aid=582478` 5 组 | ❌ 全 `disc=0` |
+| 49 | `trade/create` 带 `activity_id`/`entry_method` 可出 1 元 | 6 + 3 组 | ❌ `611080000` / `611060114`（服务端重算 6800） |
+| 50 | 已支付订单可 grant 给别的号 | `/alice/auth/grant` + 真实 `order_id` | ❌ `ECOM_AUTH_INVALID_PARAM`，该接口 0 调用点 |
+| 51 | 登录电脑版客户端会发 1 元资格 | 真机客户端常驻号 `2187396333184651` | ❌ 仍 `disc=0`（30 天/5 天赠礼线才认 PC 登录） |
+| 52 | 使用强度 / 会话数决定资格 | `/im/chain/recent_conv` 18 个候选 | ❌ 全 0，命中与未命中无差 |
 
 第 10 条是本项目最贵的一刀：用了唯一带资格的账号，¥1 已退，`subscription_id` 归 0，资格永久消失。
 
@@ -1003,6 +1038,7 @@ This repository documents **how the system works**, not how to bypass it. It con
 
 | Round | 内容 |
 |---|---|
+| **R473–R474** | 9 条分桶信号全负（uid 取模 / AB / banner / 会话数 / intake / 桌面口径 / `activity_id`×6+`entry_method`×3 / `auth/grant` 死代码 / 真机 PC 登录）；新增 `tools/stock.py`（库存复验 + 扫码自动入库 + 按需出码，当前 STOCK=3 uid） |
 | **R472** | 客户端侧收口：`resources.pak`（14.7 MB）`alice`/`eligibility`/`campaign` **0 命中**；`local_webcontents` 2322 文件里 `ai-views` 467 条 alice 路径、62 条 commerce **与 web 端完全重合**；`intro_offer` 只是 `trade/create|estimate` 入参；新增 `tools/qr_batch.py`（循环扫码 → 判资格 → 出码，`--stop-on-hit`） |
 | **R471** | 候选漏斗：560 → 活 243 → 境外 143 → **境外+零订阅 27 行/18 uid** → 命中 6 行/3 uid（**16.7%**，比全池 1.2% 高 14 倍）；证明 `cc=86` 零订阅也 0 命中、有订阅记录的境外号 0 命中；新增 `tools/triage.py`（33.5 s 跑完全池） |
 | **R470** | 账号档案 `passport/account/info/v2` 对齐 243 活号：`country_code` 1/852 才有命中（86 的 79 行 0 命中），但境外 143 行也只中 6 行 →资格是**按 uid 发放的独立 eligibility 记录**（3 个号 3 个不同 id）；7 组 region 矩阵无效；`student/*`、`ug/campaign/*`、`marketing/card/*` 全负；CDP 抓到会员页真实调用序列（5 个请求，无隐藏开关）；Desktop 4554 条只活 2 条 0 命中 |
@@ -1038,6 +1074,7 @@ This repository documents **how the system works**, not how to bypass it. It con
 | 资格 vs 手机国家码（243 活号） | `docs/evidence/r470_country_code.json` |
 | 候选漏斗（境外 + 零订阅） | `tools/triage.py` |
 | 批量扫码出码（命中即停） | `tools/qr_batch.py` |
+| 资格库存 / 保底出码 | `tools/stock.py` |
 | 错误码对照 | 本文 §9、`docs/PROTOCOL.md` §12.2 |
 
 ---
