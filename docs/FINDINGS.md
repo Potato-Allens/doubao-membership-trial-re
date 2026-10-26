@@ -156,3 +156,37 @@ POST /alice/commerce/sale/debook/submit/  {"order_id":"<已脱敏>","refund_reas
 | 全池复扫分布 | `evidence/sweep_elig_434_summary.json` |
 | 端点全集 | `evidence/endpoint_catalog.json` |
 | 接口 schema | `docs/PROTOCOL.md` |
+---
+
+## J. R460：判别器排除与两处修正
+
+### J.1 四个候选判别器全部排除
+
+| 假设 | 样本 | 结果 |
+|---|---|---|
+| `cc=1`（美区）专享 | 5 个 `cc=1` 号 | 4 个 `hist=false`、`cards=[]` ⇒ 无关 |
+| `hm=2` 地区包 | 81 个 `hm=2` 号 | 仅 1 命中 ⇒ 无关 |
+| 注册月份 | 2026-10 注册 100 号 | 仅 1 命中，无单调关系 |
+| `new_user_check.is_old_user` | 60 号 | 35 个 `false` 全部 0 命中 ⇒ 无关 |
+
+**结论不变：资格是按 `uid` 的人群包，可观测判别器只有服务端下发的 `trial_stage` / `discount_amount` 本身。**
+
+### J.2 修正一：`status:2` 是兜底值
+
+`marketing/activity/detail` 传任意 key（含明显不存在的 `zzzzzzzz`）都回 `{status:2}`。
+此前记为"`k7m3qx9p` 已满/关闭"的判断**不成立**——那只是兜底返回。
+
+### J.3 修正二：`config/pull` 不是"端点不可用"
+
+之前 62 个配置 id 全部 `710010202`，原因是 `objects` 传了字符串/对象。真实类型是 **int 数组**，`reason` 是 **int**。
+CDP 抓包（R460）拿到了客户端原始 body，端点本身完全可用。详见 `docs/PROTOCOL.md §11`。
+
+### J.4 账号池存活率
+
+| 指标 | 数值 |
+|---|---|
+| 池内总数 | 212 |
+| 抽样前 40 | 11 活 / 29 `710012001` |
+| 11 个活号命中 | **0** |
+
+⇒ 当前瓶颈是**号源**，不是判定逻辑。

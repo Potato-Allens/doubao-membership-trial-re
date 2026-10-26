@@ -204,3 +204,70 @@ POST /alice/ug/event/report              {"code","scene","campaign_item_code","m
 - `is_trial` **只出现在埋点事件里**（`+(card.trial_info.trial_stage === Trialing)`），不是下单参数
 - 会员页路由 `/member/campaign` 懒加载 chunk `303/9511/5893/9880/6777/9184`
 - PC 客户端 `local_webcontents` 2035 个 js/json/html 中，`campaign_group_code` 全部是变量引用，**0 个硬编码活动码**
+---
+
+## 11. PC 端配置下发（R460 · CDP 抓包还原）
+
+> 来源：CDP `Network.requestWillBeSent`（端口 9224，`suppress_origin=True`）+ `Page.reload`。`config/pull` 只在首屏加载时发一次。
+
+### 11.1 `user/config/pull`
+
+```http
+POST /alice/user/config/pull?version_code=20800&...&aid=582478&doubao_device_platform=desktop
+Content-Type: application/json
+
+{"objects":[114,111],"reason":2}
+```
+
+字段类型（**这是本轮最贵的坑**）：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `objects` | `int[]` | 配置对象 id 数组；客户端分 4 包拉取，最大一包 62 个 id |
+| `reason` | `int` | 拉取原因；`1` = 常规，`2` = 首屏 |
+
+传字符串/对象 → 统一 `710010202`，会被误判为"端点不可用"。
+
+抓到的四包：
+
+```jsonc
+{"objects":[114,111],"reason":2}
+{"objects":[150],"reason":1}
+{"objects":[300,301,302,379,303,304,305,306,307,308,309,310,311,312,313,314,315,316,317,318,319,320,321,322,323,324,325,326,327,328,329,330,331,332,333,334,335,336,337,338,339,340,341,342,343,344,345,346,347,348,349,350,351,352,353,354,355,356,357,376],"reason":1}
+{"objects":[145,146],"reason":1}
+```
+
+### 11.2 `biz/activity/get_pop_window`
+
+```http
+POST /biz/activity/get_pop_window?aid=582478&doubao_device_platform=desktop
+{"pc_os":"Windows","scene":8,"surface":3,"ug_campaign_info":{}}
+```
+
+- `scene` / `surface` 均为 **int**；类型错时静默返回空列表（不报参数错）。
+- 全扫 `scene 0~20 × surface 0~5`（126 组）：非空 30 组，全部是推荐词类弹窗（`SugNewHotspot` / `PersonalityWcb` / `SugNewKeyword` / `SugCreationText*`），**不存在会员/试用类弹窗**。
+
+### 11.3 `benefit_supply` 族（**不带 `/alice` 前缀**）
+
+| 端点 | 返回 |
+|---|---|
+| `benefit_supply/ping` | `{}` |
+| `benefit_supply/fission/get_user_is_new_flag` | `{is_new_user:false}` |
+| `benefit_supply/fission/get_campaign_info` | `611100000 campaign not found` |
+| `benefit_supply/credit/get_credit_num_optional_tasks` | 积分 0 + 2 个可选任务（每日登录 App / 每日登录豆包电脑端） |
+| `benefit_supply/credit/user_activity` | `data:null` |
+| `benefit_supply/credit/get_credit_tip` | `data:null` |
+
+### 11.4 `intake/entitlement/*`
+
+| 端点 | 要点 |
+|---|---|
+| `intake/entitlement/query` | `scene` 必须 **int**；`scene=1` 返回 `{"fingerprint":"927f9d76…"}`，其余 1~40 全 `710010202` |
+| `intake/entitlement/changed_callback/` | `{callback_scene}` → `code 0, data {}`（内部回调，无外部副作用观测到） |
+| `sale/approval/event_callback[/_ppe]` | `code 0`（需 challenge/token/type/ts/uuid/event） |
+| `sale/pipo_pay/*_callback/` | **404**，不可达 |
+
+### 11.5 一个必须记住的反例
+
+`marketing/activity/detail` 对**任意** `activity_key`（`zzzzzzzz` / `test` / `q923dmsa` / `k7m3qx9p`）都返回 `{status:2}`。
+⇒ `status:2` 是**兜底返回值**，不能解读为"活动已售罄/已关闭"。此前基于该字段的判断作废。

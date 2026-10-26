@@ -2,9 +2,11 @@
 
 > **只读探测，命中才出单** —— 把豆包「1 元 / 7 天试用」的资格判定做到可复现。
 
-对豆包（Doubao）会员订阅体系做的协议级逆向工程与自动化工具集。通过静态分析约 41 MB 的前端 bundle、PC 客户端 CDP 抓包，以及 190 个探测脚本的实测，完整还原了订阅下单链路与「1 元试用」的资格模型。
+对豆包（Doubao）会员订阅体系做的协议级逆向工程与自动化工具集。通过静态分析约 41 MB 的前端 bundle、PC 客户端 CDP 抓包，以及 192 个脚本（含 186 个单点探测）的实测，完整还原了订阅下单链路与「1 元试用」的资格模型。
 
 > ⚠️ 本仓库仅用于协议研究与方法论记录。所有凭证、订单号、支付链、账号 ID 均已脱敏或不入库。详见「数据脱敏」与「免责声明」。
+>
+> 📌 最近更新（R460）：用 CDP 抓到 `user/config/pull` 的真实请求体（`objects` 为 **int 数组**），修正了「参数不可用」的误判；同时把资格判别器的 4 个候选假设（`cc` / `hm` / 注册月份 / `is_old_user`）全部实测排除。
 
 ---
 
@@ -69,7 +71,8 @@
 | 扫码登录 | `tools/qr_login.py` | 飞书 / 抖音扫码，落地 `storage_state` |
 | 账号入库 | `tools/intake.py` | 多形态 Cookie 归一化、去重、并发校验 |
 | 支付链 | `tools/onepay.py` | `trade/create` → `pay_url` → 二维码 → 轮询 |
-| 协议探测 | `tools/_*.py` | 190 个单点探测脚本，每个对应一个假设 |
+| 命中流水线 | `tools/hunt.py` | 扫池 → 命中即出单 → 落 `hits.jsonl`；`--watch` 常驻、`--no-mint` 只判定不动账号 |
+| 协议探测 | `tools/_*.py` | 186 个单点探测脚本，每个对应一个假设 |
 
 ---
 
@@ -81,11 +84,12 @@ doubao-membership-trial-re/
 ├── LICENSE
 ├── requirements.txt
 ├── .gitignore
-├── tools/                     # 190 个脚本（同一目录，保证相对导入）
+├── tools/                     # 192 个脚本（同一目录，保证相对导入）
 │   ├── doubao_yuan.py         # 主 CLI：scan / mint / status / cancel
 │   ├── intake.py              # Cookie 池归一化 + 校验
 │   ├── qr_login.py            # 扫码登录
 │   ├── onepay.py              # 建单 + 二维码 + 轮询
+│   ├── hunt.py                # 扫池 → 命中即出单流水线
 │   └── _*.py                  # 单点协议探测（见 docs/FINDINGS.md）
 ├── docs/
 │   ├── PROTOCOL.md            # 接口全集 + 请求/响应 schema
@@ -298,6 +302,8 @@ use-olympus-account=1
 | **订单/发票** | `order/list` · `order/detail` · `invoice/*` |
 | **权益** | `intake/entitlement/query` · `entitlement/usage_detail` · `usage/timeline` |
 | **UG 活动** | `ug/campaign/list` · `ug/campaign/v3/detail` · `ug/campaign/landing/{get,checkin,report}` · `ug/campaign/item/reward/claim` · `ug/campaign/verify` · `ug/campaign/student/*` |
+| **配置下发** | `user/config/pull` · `biz/activity/get_pop_window` |
+| **权益供给** | `benefit_supply/ping` · `benefit_supply/fission/get_user_is_new_flag` · `benefit_supply/fission/get_campaign_info` · `benefit_supply/credit/get_credit_num_optional_tasks` · `benefit_supply/credit/user_activity` · `benefit_supply/credit/get_credit_tip` |
 
 ### 8.1 参数类型陷阱（实测踩过）
 
@@ -306,6 +312,10 @@ use-olympus-account=1
 | `ug/campaign/list` | `scene` | **string** | 传 number → `expected string, actual value: 0 (json.Number)` |
 | `ug/campaign/landing/checkin` | `biz_params` | **map** | 传 `""` → `expected map, actual value: (string)` |
 | `marketing/subscribe/init` | `payload` | JSON **字符串** | 传对象 → 参数错 |
+| `intake/entitlement/query` | `scene` | **int** | 传 string → `710010202`；实测只有 `scene=1` 返回数据 |
+| `user/config/pull` | `objects` | **int[]** | 传字符串/对象 → `710010202` |
+| `user/config/pull` | `reason` | **int** | 同上 |
+| `biz/activity/get_pop_window` | `scene` / `surface` | **int** | 类型错时静默回空列表 |
 
 > 这三条曾导致一轮 250 组候选的扫描全部无效。修正后重打 210 组，结果仍为 `campaign not found`（见 FINDINGS）。
 
@@ -353,7 +363,41 @@ use-olympus-account=1
 | 换 `purchase_channel` 0~6 | ❌ 无变化（7+ 返回空列表） |
 | 换 `aid` 497858 / 582478 | ❌ 无变化 |
 | 新注册当天账号 | ❌ 0 命中（10-21/10-22 注册的 74 个号） |
-| 早期注册账号（10-13/10-14，45 个） | 3 命中 |
+| 注册时间相关性 | ❌ 2026-10 注册的 100 个号里仅 1 命中，无规律 |
+| `cc=1`（美区）号 | ❌ 5 个中 4 个 `hist=false` / `cards=[]`，与资格无关 |
+| `hm=2` 地区号 | ❌ 81 个里仅 1 命中，与资格无关 |
+| `is_old_user=false` | ❌ 60 号实测 35 个 false 全 0 命中 |
+
+### 10.3 PC 端真包抓取（CDP，R460）
+
+浏览器侧脚本会被压缩/混淆，但**网络层不会骗人**。用 CDP（`--remote-debugging-port=9224`）挂 `Network.requestWillBeSent` 并 reload 页面，抓到了两条长期未被还原的真实请求体：
+
+```http
+POST /alice/user/config/pull?<公共参数>&doubao_device_platform=desktop
+{"objects":[114,111],"reason":2}
+{"objects":[150],"reason":1}
+{"objects":[300,301,302,379,303,...,357,376],"reason":1}   # 62 个数字 id
+{"objects":[145,146],"reason":1}
+```
+
+```http
+POST /biz/activity/get_pop_window?<公共参数>&doubao_device_platform=desktop
+{"pc_os":"Windows","scene":8,"surface":3,"ug_campaign_info":{}}
+```
+
+**这两条解释了此前的一整轮空转**：`config/pull` 的 `objects` 是 **int 数组**、`reason` 是 **int**，之前按字符串/对象构造，全部被判 `710010202`，于是误判成"端点不可用"。抓包同时说明客户端是**分包拉取**（4 次请求，最大一次 62 个 id），不是一次拉全量。
+
+> 复现要点：CDP 连接需 `websocket.create_connection(url, suppress_origin=True)`，否则被 Origin 校验拒绝；必须挂 `Page` 域并 reload，`config/pull` 只在首屏加载时发一次。
+
+### 10.4 账号池存活率（R460 复核）
+
+| 指标 | 数值 |
+|---|---|
+| 池内总数 | 212 |
+| 抽样前 40 个 | 11 存活 / 29 `710012001 login invalid` |
+| 11 个活号的 `trial_hits` | **0** |
+
+结论：**瓶颈已经从"资格判定"转移到"号源"**。历史池的 Cookie 大批失效，且磁盘上其余 `sessionid` 大多是字节另一个产品（Dola）的会话，打到豆包统一 `710012001`。
 
 ---
 
@@ -369,12 +413,16 @@ use-olympus-account=1
 | 4 | `is_trial` 是下单开关 | 从 JS 反查 | ❌ 只是埋点字段（`trial_stage===Trialing`） |
 | 5 | 换设备指纹能继承资格 | 换 `device_id`/`web_id`/`install_id`/`iid` | ❌ 按 uid 重算 |
 | 6 | 换渠道（IAP/支付宝/微信）触发不同价格 | `purchase_channel` 0~6 | ❌ 一致 |
-| 7 | 内测活动还能进 | `beta/check` / `activity/detail` | ❌ `k7m3qx9p` 全 channel `status=2`（已满/关闭） |
+| 7 | 内测活动还能进 | `beta/check` / `activity/detail` | ❌ `beta/check` 任意非空 id 回 `611080000`；`activity/detail` **任意** key（含 `zzzzzzzz`）都回 `status:2` ⇒ `status:2` 是兜底返回值，**不是「已售罄」**（R460 修正） |
 | 8 | 有优惠券卡可用 | `marketing/card/list` | ❌ 三个号全空，`balance=0` |
 | 9 | 领「固定订阅」白拿 | `campaign/fixed_subscription/claim` | ❌ `710010702` |
 | 10 | **买→退→再买可循环** | 真实退款 ¥1 | ❌ `trial_stage` 2 → `null`，**不回滚** |
 | 11 | 活动码可以猜出来 | 210 组 group_code × scene | ❌ 全 `campaign not found`；客户端 2035 个文件 0 个硬编码活动码 |
 | 12 | 订阅列表里有别的试用 SKU | 12 张卡全枚举 | ❌ 只有 `std/auto_renew_month` 带 trial |
+| 13 | `cc=1`（美区）号专享 1 元 | 5 个 `cc=1` 号打 `trade/init` | ❌ 4 个 `hist=false`、`cards=[]`，无折扣 |
+| 14 | `hm=2` 地区包决定资格 | 81 个 `hm=2` 号 | ❌ 仅 1 命中，与 `hm` 无相关性 |
+| 15 | "新用户"标记决定资格 | 60 号 `new_user_check` | ❌ 35 个 `is_old_user=false` 全部 0 命中 |
+| 16 | 注册时间越早越容易命中 | 按注册月分组 | ❌ 2026-10 注册 100 号仅 1 命中，无单调关系 |
 
 第 10 条是本轮最贵的一刀：用了唯一带资格的账号，¥1 已退，`subscription_id` 归 0，资格永久消失。
 
@@ -386,7 +434,7 @@ use-olympus-account=1
 - **在包率约 0.47%**（本批样本）。规模化只有两条：扩大账号样本，或走学生认证线（需抖音绑定 + 学信网）。
 - **支付链 30 分钟过期**（`order_expire_seconds=1799`）。
 - **试用到期自动续费 ¥68/月**，务必在 `subscription/cancel` 关闭。
-- **Cookie 会失效**，35% 的历史号在扫描时已 `login invalid`。
+- **Cookie 会失效**：全量扫描时 35.4% 已 `login invalid`；R460 抽样前 40 个更是 29/40 失效，活号命中 0。**号源是当前唯一瓶颈。**
 - **手机号注册** 会被滑块拦截（`1105/1107`）。
 - 本仓库**不包含**任何真实 Cookie、订单号、支付链或二维码。
 
@@ -403,7 +451,7 @@ use-olympus-account=1
 | 删除 | 全部 `*.png`（含支付二维码）、`*.log`、`*.err`、`__pycache__` |
 | 打码 | 证据 JSON 中的 `uid` → 前 3 位 + `*` + 后 2 位 |
 | 打码 | 订单号 / `apply_id` / `pay_url` / `subscription_id` 全部剔除 |
-| 保留 | 190 个脚本、脚本结构与判定阈值（不含凭证） |
+| 保留 | 192 个脚本、脚本结构与判定阈值（不含凭证） |
 
 校验方式：`git grep -nE "sessionid=[A-Za-z0-9]|uid_tt=[A-Za-z0-9]|pay_url=http"` 应为 0 命中。
 
@@ -431,4 +479,4 @@ The toolkit therefore follows a **probe-first, mint-second** design: read-only e
 
 ---
 
-*Last updated: 2026-10-26*
+*Last updated: 2026-10-26 (R460)*
