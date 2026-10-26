@@ -250,3 +250,74 @@ CDP 抓包（R460）拿到了客户端原始 body，端点本身完全可用。�
 **工程结论**：唯一可交付的"随时有货"形态 = 常驻 `hunt.py --watch`（只读探测）+ 命中库存 + 按需 mint。已在 137 活号上以 60 分钟周期运行。
 
 > `hunt.py` 本轮升级：命中即使 `--no-mint` 也写 `hits.jsonl`（`event:"hit"`），并做 `(name, disc)` 去重，避免 watch 模式刷屏。
+### K.7 R466：`samantha/fission/*` 族还原（bundle → 实测）
+
+从 41 MB web bundle 里还原出完整的裂变/邀请族。此前从未探测过。
+
+| 端点 | method | 真实入参 | 空/错参实测 |
+|---|---|---|---|
+| `/samantha/fission/entrance` | **GET** | `{enter_from}` | 字符串 → `671010000` |
+| `/samantha/fission/home_page` | **GET** | `{activity_id}` | 空 → `671010000` |
+| `/samantha/fission/share_info` | **GET** | `{invited_code, activity_id}` | 空 → `671010000` |
+| `/samantha/fission/draw` | POST | `{is_exchange, activity_id}` | 空 → `671010000` |
+| `/samantha/fission/approve` | POST | `{invited_code, activity_id}` | 空 → `671010000` |
+| `/samantha/fission/report` | POST | `{report_type, activity_id}` | 空 → `671010000` |
+| `/samantha/fission/check` | POST | `{data}` | `{data:""}` → `710022001 record not found` |
+| `/samantha/fission/reward_info` | POST | `{order_id, activity_id}` | 空 → `671010000` |
+
+同轮还原的基础设施：
+
+- `/credit/invite`（GET 打过去返回 HTML，是前端路由不是 API）
+- `/alice/auth/grant`、`/alice/auth/verify`（入参 `{order_id, src_platform, trigger}`）
+- `/commerce/benefit_supply/fission/{join_group,get_campaign_info,get_group_invitation,...}`（需 `campaign_key` / `encrypt_group_id`）
+- PC 端 `landpage_click` 实际打到第三方落地页域名 `https://99uri.com/ug/pc/landpage_click`
+
+### K.8 R467：`enter_from` 是 int 枚举 + 全池扫描（关键纠错）
+
+**纠错**：R466 用 `enter_from="chat"` 打 GET，全部 `671010000 params invalid`，一度以为"端点不存在/仅 POST"。
+bundle 里的枚举定义是：
+
+```js
+(i.Desktop = 0), (i.Web = 1)
+```
+
+改成 **int 0/1** 后，`GET /samantha/fission/entrance` 直接 `code=0`，返回：
+
+```jsonc
+{"show_entrance":false,"show_popup":false,"entrance_banner":null,
+ "popup_data":null,"invite_info":null,"activity_info":null,
+ "show_settings_entrance":false}
+```
+
+**全池扫描**：212 个账号 × `enter_from ∈ {0,1}`：
+
+| 指标 | 数值 |
+|---|---|
+| `code=0` | 212 / 212 |
+| `show_entrance=true` | 0 |
+| `show_popup=true` | 0 |
+| `activity_info != null` | 0 |
+| `entrance_banner != null` | 0 |
+
+⇒ `entrance` 是**活动级**开关：失效 Cookie 也回 `code=0`，它回答"现在有没有活动"，不是"这个 uid 有没有资格"。
+⇒ 当前**没有在投放的 fission 活动**，这条线没有可领的邀请/抽奖奖励。
+
+**`activity_id` 命名空间**：
+
+| 入参 | 结果 |
+|---|---|
+| `""` / `"doubao"` / `"trial"` / `"null"` | `671010000 params invalid` |
+| `0` / `1` / `2..10` / `100` / `1000` / `2026` / `999999` / `1e8` / 命中号 uid | `710022001 record not found` |
+
+⇒ 只收整数；不是小整数枚举；活动 id 只能从真实入口（`entrance_banner.activity_id`）或分享链获得。
+
+**其余端点**：
+
+| 实验 | 结果 |
+|---|---|
+| `share_info` + `invited_code ∈ {a,1,abc123,A1B2C3}` + `activity_id=1` | 全 `710022001 record not found` |
+| `check` + `{data:""}` | `710022001 record not found`（先查记录再校验） |
+| `/alice/auth/grant` + `{order_id:"",src_platform:1,trigger:1}` | `ECOM_AUTH_INVALID_PARAM` / `订单号不能为空` |
+| `/credit/invite` GET | HTML 页面 |
+
+**结论**：fission 是"有活动才有入口"的投放体系，不是常驻的邀请返利；`auth/grant` 是"按订单发权益"，必须先有真实订单。两条线都不构成 `trade/init` 之外的第二条 1 元路径。

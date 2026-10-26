@@ -313,3 +313,55 @@ web bundle（41 MB）里这些 API 的封装函数如下，**参数名以本表�
 | `611070003` | `resolve_fixed_cta` `default_member_link` | 该 scene 无固定 CTA |
 | `611060101` | `trade/init` 未知 scene_key | scene 不合法 |
 | `611060900` | `trade/init` scene/feature 组合不合法 | 参数组合错误 |
+---
+
+## 13. `samantha/fission/*` 与 `alice/auth/*`（R466–R467）
+
+### 13.1 method 与真实入参
+
+| 端点 | method | 入参 |
+|---|---|---|
+| `/samantha/fission/entrance` | **GET** | `{enter_from:int}` — `0=Desktop`, `1=Web` |
+| `/samantha/fission/home_page` | **GET** | `{activity_id:int}` |
+| `/samantha/fission/share_info` | **GET** | `{invited_code:string, activity_id:int}` |
+| `/samantha/fission/draw` | POST | `{is_exchange:bool, activity_id:int}` |
+| `/samantha/fission/approve` | POST | `{invited_code:string, activity_id:int}` |
+| `/samantha/fission/report` | POST | `{report_type:int, activity_id:int}` |
+| `/samantha/fission/check` | POST | `{data:string}` |
+| `/samantha/fission/reward_info` | POST | `{order_id:string, activity_id:int}` |
+
+> **类型陷阱**：`enter_from` / `activity_id` 都必须是 **int**。传字符串统一 `671010000 params invalid`。
+> `activity_id` 传任意未存在的整数 → `710022001 record not found`。
+
+### 13.2 `entrance` 响应 schema
+
+```jsonc
+{"code":0,"data":{
+  "show_entrance": false,
+  "show_popup": false,
+  "entrance_banner": null,      // {guidance_type, activity_id, ...}
+  "popup_data": null,
+  "invite_info": null,
+  "activity_info": null,
+  "show_settings_entrance": false
+}}
+```
+
+`entrance_banner.activity_id` 是 `home_page` 的合法输入来源；当前全池 212 号均为 `null`（无活动）。
+
+### 13.3 `alice/auth` 族
+
+```js
+AuthGrant({order_id, src_platform, trigger})  → POST /alice/auth/grant
+AuthVerify({order_id, src_platform, trigger}) → POST /alice/auth/verify
+```
+
+空 `order_id` → `ECOM_AUTH_INVALID_PARAM / 订单号不能为空`。语义是"按订单发/验权益"，不是"按资格发权益"。
+
+### 13.4 实测摘要
+
+- `entrance`：212 号 × {0,1} → 212/212 `code=0`，`show_*` 全 false。
+- `home_page`：`0/1/2..10/100/1000/2026/999999/1e8/uid` → 全 `710022001`。
+- `share_info`：假 `invited_code` → `710022001`。
+- `check`：`{data:""}` → `710022001`。
+- `draw/approve/report/reward_info`：空参 → `671010000`。
