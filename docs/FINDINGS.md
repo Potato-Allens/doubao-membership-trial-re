@@ -377,3 +377,40 @@ bundle 里的枚举定义是：
 136 条 sessionid 中仅 **4 条**不在已知池。存量本地 profile 已榨干。
 
 **结论**：新增号源只能去外部找「US / HK 注册环境」的历史池，继续翻本机文件是负收益。
+
+## M. R470：资格落在 `country_code` 与 per-uid eligibility 上
+
+**1. 账号档案对齐（243 活号）**
+
+`/passport/account/info/v2/` 的 `country_code`（手机国家码）与 `trade/init` 折扣对齐：
+
+| cc | 行数 | 命中行 |
+|---|---|---|
+| 86 | 79 | 0 |
+| 0 | 20 | 0 |
+| 1 | 20 | 4 |
+| 852 | 123 | 2 |
+| 44 | 1 | 0 |
+
+所有命中 `hm_region=2`（境外），但境外 143 行只中 6 行（3 个 uid）→ 必要条件，不充分。
+同一天同批次注册的境外号有中也有不中，`user_create_time` / 手机前缀均无法区分。
+
+**2. eligibility 是 per-uid 记录**
+
+| uid | cc | selected_eligibility_id |
+|---|---|---|
+| 639260239604313 | 1 | 7698970573258588170 |
+| 3999391513351705 | 1 | 7700991370128261130 |
+| 2416094733678572 | 852 | 7698658388344340514 |
+
+三者互不相同 → 不存在公共活动对象可复用（与 §II 第 2 条一致）。
+
+**3. 请求侧 7 组 region/sys_region/language 矩阵**：命中恒 6700、普通恒 0。
+
+**4. 新端点负结果**：`student/*` 611060180；`ug/campaign/list|v3/detail` campaign not found；`landing/get` 空页面；
+`marketing/card/*` 仅 quota_reset_card；`marketing/subscribe/init` 空；`campaign/trial/init` 与 `fixed_subscription/claim` 恒 710010702。
+
+**5. CDP 真机抓包（会员页）**：只有 5 个请求（entry/config、trade/init、incentive/campaign/subscription/query、
+marketing/subscribe/init、marketing/resource/mget/v2），无隐藏开关。
+
+**6. Desktop 大盘 4554 条**：`710012001` 2689、活 2、命中 0（1863 条超时另跑）。

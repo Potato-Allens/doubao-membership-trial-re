@@ -709,6 +709,59 @@ Chrome 解密的可复现细节（`tools/_r469_chromedb.py`）：
 
 ⇒ 存量本地 profile 已被榨干，**新增号源的唯一正路还是去外部找「美区 / 港区注册环境」的历史池**，而不是在本机文件里继续翻。
 
+### 10.12 资格到底挂在哪个字段上（R470）
+
+R468 只知道「境外注册环境命中率高」。R470 把账号档案接口 `/passport/account/info/v2/` 拉通，对 **243 个活号** 逐个取 `country_code` / `hm_region` / `user_create_time`，再和 `trade/init` 的折扣对齐：
+
+| `country_code` | 样本（行） | 命中（行） |
+|---|---|---|
+| `86`（中国大陆） | 79 | **0** |
+| `0`（未知） | 20 | 0 |
+| `1`（+1 美国） | 20 | **4** |
+| `852`（+852 香港） | 123 | **2** |
+| `44`（+44 英国） | 1 | 0 |
+
+结论一：**手机号国家码是必要条件**——243 个活号里所有命中号的 `country_code` 都是 `1` 或 `852`，`hm_region` 都是 `2`；`86` 的 79 行一个都没有。
+
+结论二：**但它远不是充分条件**。境外号共 143 行，命中只有 6 行（去重后 3 个 uid），约 **4%**。同一天（2026-10-13）注册的境外号里，既有命中也有大量不命中；`user_create_time`、`mobile` 前缀都分不出来。⇒ 资格是**服务端按 uid 发放的一条 eligibility 记录**，不是靠客户端可观测属性推出来的。
+
+三个命中号的 `trade_extra` 里带的是**三条互不相同的** `selected_eligibility_id`：
+
+| uid | `country_code` | `selected_eligibility_id` |
+|---|---|---|
+| `639260239604313` | 1 | `7698970573258588170` |
+| `3999391513351705` | 1 | `7700991370128261130` |
+| `2416094733678572` | 852 | `7698658388344340514` |
+
+⇒ 不是「一个公共活动对象大家共用」，而是**每个 uid 一条独立发放记录**，所以也不存在「拿别人的 id 去用」这种走法（§11 第 2 条已证伪）。
+
+**请求侧再确认一次没用**：7 组 `region` / `sys_region` / `language` 组合（CN/US/HK/SG/JP 及交叉）打下去，命中号恒 `6700`、普通号恒 `0`，一个像素都不动。
+
+**新端点排查（全部负结果）**
+
+| 端点 | 结果 |
+|---|---|
+| `sale/student/verify_info` / `verify_url` / `entitlement/receive` | ❌ 三连 `611060180 student douyin account required` |
+| `marketing/card/list` / `card/balance` | 只有 `quota_reset_card`（额度重置卡）：普通号 1 张、命中号 0 张，与会员无关 |
+| `ug/campaign/list` / `v3/detail`（5 个 group 猜测） | ❌ `code=2 campaign not found` |
+| `ug/campaign/landing/get`（4 个 scene） | `code=0` 但 `main_page_info` 全空 |
+| `marketing/subscribe/init` | 真实客户端发 `{}`，返回空；不是领权益入口 |
+| `sale/campaign/trial/init` / `fixed_subscription/claim` | 任何 body 都 `710010702 system error`（无对外可用形态） |
+
+**客户端真机抓包（CDP 9224，会员页）** 拿到会员页真实调用序列，确认页面**只走**这 5 个请求：
+
+```
+POST /alice/commerce/sale/subscription/entry/config/     {}
+POST /alice/commerce/sale/trade/init/                    {"scene_key":"default_member_link","purchase_channel":2}
+POST /alice/commerce/incentive/campaign/subscription/query/  {}
+POST /alice/commerce/marketing/subscribe/init/            {}
+POST /alice/commerce/marketing/resource/mget/v2/          {"resource_keys":["subscription_bottom_toast","exit_retention"]}
+```
+
+⇒ 没有第六个「隐藏开关」。会员页拿到的就是 `trade/init` 里那张卡，资格在服务端已经定好。
+
+**号源：Desktop 大盘（4554 条）** 全量 `trade/init` 快速筛：`710012001` 2689 条、活 2 条、命中 0 条，其余 1863 条超时重试中。这条线也基本是死的。
+
 ## 11. 已证伪清单（重要）
 
 这一节是本项目最诚实的部分。以下假设**都做过实验，都失败了**，记录在此避免重复劳动：
@@ -752,6 +805,10 @@ Chrome 解密的可复现细节（`tools/_r469_chromedb.py`）：
 | 35 | 建单会消耗资格 | 3 个资格号 create 后复测 6 条 cookie | ❌ 仍 `trial_stage=1`；只有**支付**才消耗 |
 | 36 | `Downloads` 那批 2186 个 `sessionid` 是豆包号 | 随机 100 条打 `trade/init` | ❌ 100/100 `710012001 login invalid`（Dola 号，只有 passport cookie） |
 | 37 | 客户端还藏着没找到的人群标记 | 命中号 vs 普通号 `trade/init` 递归全字段 diff | ❌ 只有 9 处差异，全在 `purchase_card_list[0]`；`activities` 两号完全一致 |
+| 38 | 改请求 `region` 就能改资格 | 7 组 `region`/`sys_region`/`language` 矩阵（CN/US/HK/SG/JP） | ❌ 命中号恒 6700、普通号恒 0 |
+| 39 | 学生权益可以领 | `sale/student/{verify_info,verify_url,entitlement/receive}` | ❌ 全 `611060180 student douyin account required` |
+| 40 | `ug/campaign/*` 能领「下载 PC 端 5 天」 | 5 个 group 猜测 + 4 个 scene + `v3/detail` | ❌ `code=2 campaign not found`；landing 返回空页面 |
+| 41 | 卡券里能开出会员体验卡 | `marketing/card/list`、`card/balance`（命中 vs 普通） | ❌ 只有 `quota_reset_card`（额度重置），与会员无关 |
 
 第 10 条是本项目最贵的一刀：用了唯一带资格的账号，¥1 已退，`subscription_id` 归 0，资格永久消失。
 
@@ -880,6 +937,7 @@ This repository documents **how the system works**, not how to bypass it. It con
 
 | Round | 内容 |
 |---|---|
+| **R470** | 账号档案 `passport/account/info/v2` 对齐 243 活号：`country_code` 1/852 才有命中（86 的 79 行 0 命中），但境外 143 行也只中 6 行 →资格是**按 uid 发放的独立 eligibility 记录**（3 个号 3 个不同 id）；7 组 region 矩阵无效；`student/*`、`ug/campaign/*`、`marketing/card/*` 全负；CDP 抓到会员页真实调用序列（5 个请求，无隐藏开关）；Desktop 4554 条只活 2 条 0 命中 |
 | **R469** | `trade/init` 全字段递归 diff：命中 vs 普通**只有 9 处差异**，全在 `sku_list[1].purchase_card_list[0]`，`activities` 两号一致 → 无客户端人群标记；`Downloads` 2186 个 sid 抽 100 → 100/100 `710012001`（Dola 号，弃）；Chrome 136 profile 全解（DPAPI + AES-GCM，明文需 `[32:]`）→ 仅 4 条新 sid；新增 `tools/_r469_diff.py`、`tools/_r469_chromedb.py` |
 | **R468** | 全盘回收 1041 个含 `sessionid` 的文件 → 560 号 / 243 活；找回 3 个资格 uid（+1/+1/+852），3/3 出单；证明建单不消耗资格；iso=US 10.2% / HK 15.0% / CN 0%；新增 `tools/_r468_recover_pool.py` |
 | **R467** | 纠正 `enter_from` 类型：**int 0=Desktop / 1=Web**（字符串 → `671010000`）；212 号 × 2 入口全量扫 → 0 命中；`home_page` 数字命名空间探测（0~1000 / 1e8 全 `record not found`）；`/alice/auth/grant` 需 `order_id`；重写全量 README + 新增两个可复现脚本 |
@@ -909,8 +967,9 @@ This repository documents **how the system works**, not how to bypass it. It con
 | fission 全池扫描 | `tools/_r467_fission_sweep.py`、`docs/FINDINGS.md` K.7/K.8 |
 | 全字段差分（命中 vs 普通） | `tools/_r469_diff.py` |
 | 本地 Chrome profile 取 cookie | `tools/_r469_chromedb.py` |
+| 资格 vs 手机国家码（243 活号） | `docs/evidence/r470_country_code.json` |
 | 错误码对照 | 本文 §9、`docs/PROTOCOL.md` §12.2 |
 
 ---
 
-*Last updated: 2026-10-27 (R469) · 目标未达成，继续死磕。*
+*Last updated: 2026-10-27 (R470) · 目标未达成，继续死磕。*
