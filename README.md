@@ -672,6 +672,43 @@ R468 从磁盘历史里回收 sessionid：1041 个文件 → 508 个 unique sid 
 
 > 限制：向 +852 等境外号 `send_code` 会被 passport 滑块拦截（`1105/1107`），境外号只能走扫码通道注册，无法纯协议批量造号。
 
+### 10.11 全字段差分与号源三路（R469）
+
+R468 只证明了「客户端参数改不动」，R469 把这条经验做成了**逐字段证据**：抓一份资格号 `trade/init`、一份普通号 `trade/init`，做递归结构化 diff（`tools/_r469_diff.py`）。
+
+**结果：整份响应只有 9 处差异，全部落在折扣卡片里。**
+
+| 差异位置 | 命中号 | 普通号 |
+|---|---|---|
+| `sku_list[1].purchase_card_list[0].discount_amount` | `6700` | `0` |
+| `sku_list[1].purchase_card_list[0].trial_info` | `{"trial_stage":1}` | 缺省 / `trial_stage:0` |
+| `sku_list[1].purchase_card_list[0].button_text` | ¥1 开通 7 天 | 立即开通 |
+| `sku_list[1].purchase_card_list[0].discount_type` | `1` | `0` |
+| `sku_list[1].purchase_card_list[0].trade_extra` | `{"selected_eligibility_id":7698970573258588170}` | 空 |
+| 同卡片其余 4 个价签字段 | 折扣价 | 原价 |
+| `service_current_time` | 时间戳不同 | — |
+
+关键对照：**`data.activities` 两号完全相同**，都是 `[{"crowd":"student","status":2}]`。
+
+⇒ 再次确认**客户端不存在任何隐藏的人群 / 活动标记**。资格完全由服务端按 uid 判定，命中与否只体现在「服务端愿不愿意给你一张 6700 分的折扣卡」。所以 R455–R468 在请求体上做的所有尝试（`scene` / `sku` / `group_code` / `activities` / `intro_offer`）注定无效 —— 这些字段回显的是结果，不是开关。
+
+**号源三路排查（同轮）**
+
+| 号源 | 规模 | 抽检 | 结论 |
+|---|---|---|---|
+| `Downloads` 历史导出 | 2186 unique `sessionid`（`1000个.txt` / `redeem_batch_117_*` / `redeem_batch_26_*` / `DOLA*_500.txt`） | 随机 100 条打 `trade/init` | ❌ **100/100 `710012001 login invalid`** —— 是 Dola 号，只有 passport cookie，不是豆包会话 |
+| Chrome profile（`doubao-pool/data/chrome/acc_*`） | 136 个 profile | DPAPI + AES-GCM 全解 | ✅ 136 条 sessionid 全部解出，但**仅 4 条不在已知池** |
+| Desktop 探测池 | 22 条 | 扫描超时 | ⏳ 待重跑 |
+
+Chrome 解密的可复现细节（`tools/_r469_chromedb.py`）：
+
+1. `Local State` 里 `os_crypt.encrypted_key` 是 base64，**前 5 字节是 ASCII `DPAPI`**，剥掉后 `CryptUnprotectData` 得到 AES key；
+2. `cookies.encrypted_value` 以 `v10` 开头：`nonce = blob[3:15]`、`ct = blob[15:]`，`AESGCM(key).decrypt(...)`；
+3. **明文最前面有 32 字节 App-Bound 头，必须 `[32:]` 才切到 cookie 本体**；
+4. `v20`（App-Bound Encryption）当前解不了，遇到直接跳过。
+
+⇒ 存量本地 profile 已被榨干，**新增号源的唯一正路还是去外部找「美区 / 港区注册环境」的历史池**，而不是在本机文件里继续翻。
+
 ## 11. 已证伪清单（重要）
 
 这一节是本项目最诚实的部分。以下假设**都做过实验，都失败了**，记录在此避免重复劳动：
@@ -713,6 +750,8 @@ R468 从磁盘历史里回收 sessionid：1041 个文件 → 508 个 unique sid 
 | 33 | fission 活动按 uid 定向 | 212 号全量 + 未登录对照 | ❌ 未登录也回 `code=0`；当前无活动，是**活动级**开关 |
 | 34 | 中国大陆注册的号也有机会 | 按 claim DB 的 `iso` 分层 | ❌ iso=CN 33 个号 **0 命中**（US 10.2% / HK 15.0%） |
 | 35 | 建单会消耗资格 | 3 个资格号 create 后复测 6 条 cookie | ❌ 仍 `trial_stage=1`；只有**支付**才消耗 |
+| 36 | `Downloads` 那批 2186 个 `sessionid` 是豆包号 | 随机 100 条打 `trade/init` | ❌ 100/100 `710012001 login invalid`（Dola 号，只有 passport cookie） |
+| 37 | 客户端还藏着没找到的人群标记 | 命中号 vs 普通号 `trade/init` 递归全字段 diff | ❌ 只有 9 处差异，全在 `purchase_card_list[0]`；`activities` 两号完全一致 |
 
 第 10 条是本项目最贵的一刀：用了唯一带资格的账号，¥1 已退，`subscription_id` 归 0，资格永久消失。
 
@@ -841,6 +880,7 @@ This repository documents **how the system works**, not how to bypass it. It con
 
 | Round | 内容 |
 |---|---|
+| **R469** | `trade/init` 全字段递归 diff：命中 vs 普通**只有 9 处差异**，全在 `sku_list[1].purchase_card_list[0]`，`activities` 两号一致 → 无客户端人群标记；`Downloads` 2186 个 sid 抽 100 → 100/100 `710012001`（Dola 号，弃）；Chrome 136 profile 全解（DPAPI + AES-GCM，明文需 `[32:]`）→ 仅 4 条新 sid；新增 `tools/_r469_diff.py`、`tools/_r469_chromedb.py` |
 | **R468** | 全盘回收 1041 个含 `sessionid` 的文件 → 560 号 / 243 活；找回 3 个资格 uid（+1/+1/+852），3/3 出单；证明建单不消耗资格；iso=US 10.2% / HK 15.0% / CN 0%；新增 `tools/_r468_recover_pool.py` |
 | **R467** | 纠正 `enter_from` 类型：**int 0=Desktop / 1=Web**（字符串 → `671010000`）；212 号 × 2 入口全量扫 → 0 命中；`home_page` 数字命名空间探测（0~1000 / 1e8 全 `record not found`）；`/alice/auth/grant` 需 `order_id`；重写全量 README + 新增两个可复现脚本 |
 | **R466** | 从 41 MB bundle 还原 `samantha/fission/*` 全族（8 端点，含 method 与真实入参）；发现 `/credit/invite`、`/alice/auth/{grant,verify}`、`benefit_supply/fission/join_group`；PC 端 `landpage_click` 实为 `99uri.com/ug/pc/landpage_click` |
@@ -867,8 +907,10 @@ This repository documents **how the system works**, not how to bypass it. It con
 | 移动端 / estimate / activities | `docs/FINDINGS.md` K.6 |
 | fission 入口枚举 | `tools/_r467_fission_probe.py` |
 | fission 全池扫描 | `tools/_r467_fission_sweep.py`、`docs/FINDINGS.md` K.7/K.8 |
+| 全字段差分（命中 vs 普通） | `tools/_r469_diff.py` |
+| 本地 Chrome profile 取 cookie | `tools/_r469_chromedb.py` |
 | 错误码对照 | 本文 §9、`docs/PROTOCOL.md` §12.2 |
 
 ---
 
-*Last updated: 2026-10-27 (R468) · 目标未达成，继续死磕。*
+*Last updated: 2026-10-27 (R469) · 目标未达成，继续死磕。*

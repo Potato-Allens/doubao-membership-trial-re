@@ -356,3 +356,24 @@ bundle 里的枚举定义是：
 **限制**：`phone_login.py` 记录，向 +852 等境外号 `send_code` 会被 passport 滑块拦截（`1105/1107`），境外号只能走扫码通道注册，无法纯协议批量造号。
 
 **工程**：新增 `tools/_r468_recover_pool.py`（本地 sessionid 回收 + 去重，不发网络请求）；资格库存与按需出码在本地用 `mint1.py`（不公开）。
+
+## L. R469：全字段差分与号源三路
+
+**1. `trade/init` 递归 diff（命中 vs 普通，`tools/_r469_diff.py`）**
+
+整份响应只有 **9 处差异**，全部在 `sku_list[1].purchase_card_list[0]`（`discount_amount` 6700 / `trial_info` / `button_text` / `discount_type` / `trade_extra.selected_eligibility_id` / 4 个价签字段）+ `service_current_time`。
+`data.activities` 两号**完全相同** `[{"crowd":"student","status":2}]`。
+
+⇒ 客户端无隐藏人群标记；资格是服务端 uid 维度的判定结果，请求体里那些字段只是回显。
+
+**2. `Downloads` 池（2186 unique sid）**
+
+`1000个.txt`(1000) + `redeem_batch_117_*`(666) + `redeem_batch_26_*`(520) + `DOLA*_500.txt`(500)。
+随机 100 条打 `trade/init` → **100/100 `710012001 login invalid`**。这批是 Dola 账号，只有 passport cookie，与本项目无关，全量跑无意义。
+
+**3. 本地 Chrome profile（136 个）**
+
+`doubao-pool/data/chrome/acc_*` 全部可解：`encrypted_key` 剥 `DPAPI` 5 字节 → `CryptUnprotectData` → `AESGCM` 解 `v10` → **明文 `[32:]` 才是 cookie 本体**。
+136 条 sessionid 中仅 **4 条**不在已知池。存量本地 profile 已榨干。
+
+**结论**：新增号源只能去外部找「US / HK 注册环境」的历史池，继续翻本机文件是负收益。
