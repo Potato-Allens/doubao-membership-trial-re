@@ -5,7 +5,7 @@
 [![Python](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)](#51-安装)
 [![Accounts](https://img.shields.io/badge/sample-560%20accounts-4B5563)](#10-实测数据)
 [![Endpoints](https://img.shields.io/badge/endpoints-80%2B-0EA5E9)](#8-接口地图)
-[![Falsified](https://img.shields.io/badge/hypotheses%20falsified-53-DC2626)](#11-已证伪清单重要)
+[![Falsified](https://img.shields.io/badge/hypotheses%20falsified-56-DC2626)](#11-已证伪清单重要)
 [![License](https://img.shields.io/badge/license-Apache--2.0-111827)](LICENSE)
 
 对豆包（Doubao）会员订阅体系做的一次**协议级逆向工程**：静态分析约 41 MB 的前端 bundle、用 CDP 抓 PC 客户端真包、对 212 个历史账号做只读探测与差分，最终把「1 元 / 7 天试用」的判定、下单、支付、退款、取消续费整条链路还原成可复现的代码与数据。
@@ -21,7 +21,7 @@
 | **英文仓库名** | `doubao-membership-trial-re` |
 | **英文 About（GitHub 描述）** | Protocol-level reverse engineering of Doubao membership: a per-uid eligibility oracle, the full order → pay → refund pipeline, and 35 falsified hypotheses. |
 | **建议 Topics** | `reverse-engineering`, `protocol-analysis`, `doubao`, `subscription`, `cdp`, `traffic-analysis`, `python` |
-| **中文介绍** | 对豆包会员订阅体系做协议级逆向：用 41 MB 前端 bundle 静态还原 + PC 客户端 CDP 真包抓取 + 560 个账号（243 个存活）只读探测，证明「1 元 / 7 天试用」是服务端按 `uid` 下发的人群包资格，客户端无任何开关。R475 找到服务端资格标记 `marketing/resource/mget/v2` 的 `exit_retention.activity_id`：`first_purchase_discount` / `free_trial_v2` 即被活动选中，一次请求即可 16.8 秒预筛全池、标记号出单命中率 100%，把原来的 16.7% 抽奖变成两级流水线（先筛标记、再按地区定档）。仓库给出只读判定器、命中出单流水线、80+ 端点 schema，以及 53 条实测证伪记录（含退款不回滚、零点不放名额、裂变入口无活动、买退再买、客户端全部开关等）。 |
+| **中文介绍** | 对豆包会员订阅体系做协议级逆向：用 41 MB 前端 bundle 静态还原 + PC 客户端 CDP 真包抓取 + 560 个账号（243 个存活）只读探测，证明「1 元 / 7 天试用」是服务端按 `uid` 下发的人群包资格，客户端无任何开关。R475 找到服务端资格标记 `marketing/resource/mget/v2` 的 `exit_retention.activity_id`：`first_purchase_discount` / `free_trial_v2` 即被活动选中，一次请求即可 16.8 秒预筛全池、标记号出单命中率 100%，把原来的 16.7% 抽奖变成两级流水线（先筛标记、再按地区定档）。仓库给出只读判定器、命中出单流水线、80+ 端点 schema，以及 56 条实测证伪记录（含退款不回滚、零点不放名额、裂变入口无活动、买退再买、客户端全部开关等）。 |
 
 ## 0. 30 秒读懂
 
@@ -920,6 +920,47 @@ python screen.py --pool pool.json --only-alive scan.json --json screen.json
 > 仍在跑：`tools/watch_activity.py`（18 个候选 × 每 5 分钟 × 6 小时），用来回答「标记会不会后来才出现」。
 > 如果会，就说明存在可触发的发放时机；如果 6 小时纹丝不动，就说明标记在账号维度上是一次性分配的。
 
+### 10.17 资格不是「弹窗资源」：展示可被消费，资格不会（R476）
+
+R475 把 `exit_retention` 当成资格标记，R476 把两者的关系拆开了：**它只是「展示资源」**。
+
+- 客户端弹过挽留窗后会 POST `/alice/commerce/marketing/resource/frequency/report/`，带上响应里的
+  `frequency_report_extra`（base64 的 `{resource_key, resource_id, issued_at_ms, member_type}`）。
+- 服务端随即把这条资源**消费掉**：同一 uid 再 `mget` 返回 `results:{}`，但 `trade/init` 前后完全不变。
+
+实测 2/2：
+
+| uid | report 前 | report 后 | trade/init 前 | trade/init 后 |
+|---|---|---|---|---|
+| `639260239604313` | `first_purchase_discount` | **None** | `6700 / stage=1` | `6700 / stage=1` |
+| `2416094733678572` | `first_purchase_discount` | **None** | `6700 / stage=1` | `6700 / stage=1` |
+
+⇒ 两条操作规则：
+
+1. **永远不要调 `resource/frequency/report/`**（除非就是想关掉弹窗）。它吃的是展示，不是资格。
+2. **resource 口径的负结果不可信**。一个号只要弹过一次窗，之后 mget 就永远空，但资格还在。
+
+**口径升级**：`tools/screen.py` 默认改成 `--mode init`，用 `trade/init` 做 ground truth
+（`trial_info.trial_stage == 1 && trial_period_amount == 100`）；`--mode resource` 保留为快速预筛。
+
+**243 活号按 ground truth 复扫（15.9 s）**：**6 行 / 3 个 uid** 能出 ¥1
+（`639260239604313`、`3999391513351705`×3、`2416094733678572`×2）。
+资源口径当时报 9 行 / 5 uid，多出来的 3 行 / 2 uid 是 `cc=86` 的 ¥38/¥48 档 ——
+**说明全池没有「资源被吃掉后藏起来的命中号」**，3 个 uid 就是全部。
+
+**同一个 uid 的 activity 会变**：`3999391513351705` 在 02:30 是 `first_purchase_discount`，
+02:55 起稳定为 `free_trial_v2`（连打 10 次不再变），两者 `trade/init` 都是 `6700 / stage=1`。
+⇒ 标记是「当前被选中的活动」，不是唯一开关；判资格只认 `trade/init`。
+
+**按 uid 的国家码分层（218 个去重 uid）**
+
+| cc | uid 数 | 命中 uid | 命中率 |
+|---|---|---|---|
+| `1`（美国） | 14 | 1 | 7.1% |
+| `86`（中国大陆） | 64 | 2 | 3.1%（但只是 ¥38/¥48 档） |
+| `852`（香港） | 119 | 1 | 0.8% |
+| `0`（飞书 SSO、无手机号） | 20 | 0 | 0%（样本太小，不下结论） |
+
 ## 11. 已证伪清单（重要）
 
 这一节是本项目最诚实的部分。以下假设**都做过实验，都失败了**，记录在此避免重复劳动：
@@ -980,6 +1021,10 @@ python screen.py --pool pool.json --only-alive scan.json --json screen.json
 | 52 | 使用强度 / 会话数决定资格 | `/im/chain/recent_conv` 18 个候选 | ❌ 全 0，命中与未命中无差 |
 | 53 | 只要有 `exit_retention` 标记就有 1 元 | 243 活号全量预筛 | ❌ 9 个标记号里 6 条是 `cc=86`，价格是 ¥38/¥48 ⇒ 标记只是「被活动选中」，**地区再决定档位** |
 
+| 54 | `mget/v2` 带 `is_eligible_for_intro_offer=true` 能拿到 intro 报价 | 未命中号传 true/false 各一次 | ❌ 两次都 `results:{}`，字段被服务端完全忽略 |
+| 55 | 换设备指纹能「变成」新用户拿资格 | 未命中号整套替换 `device_id`/`iid`/`install_id`/`webid`/`web_id`/`tea_web_id`/`cdid` | ❌ mget 与 trade/init 均无变化（3/3） |
+| 56 | 看过挽留弹窗（frequency/report）会消耗 1 元资格 | 2 个命中号各打一次 report 前后对比 | ❌ 只消费**展示资源**（activity_id → None），`trade/init` 仍是 `6700 / stage=1` |
+
 第 10 条是本项目最贵的一刀：用了唯一带资格的账号，¥1 已退，`subscription_id` 归 0，资格永久消失。
 
 ---
@@ -987,7 +1032,7 @@ python screen.py --pool pool.json --only-alive scan.json --json screen.json
 ## 12. 边界与限制
 
 - **资格不可造。** 本工具只能"发现"，不能"制造"。
-- **在包率：全池 3/243 ≈ 1.2%**（旧批 1/137 = 0.73%，Wilson 0.13%–4.02%）；但按 `exit_retention` 标记看是 **9/243 ≈ 3.7%** —— 标记号里 3 个境外号 3/3 出 6700，6 个 `cc=86` 号出 ¥38/¥48。资格不是均匀撒的，先筛标记能直接跳过 96% 的无效号。分层后差异极大：**iso=US 10.2% / HK 15.0% / CN 0%**（R468）。规模化只有两条：扩大境外注册环境的号源，或走学生认证线（需抖音绑定 + 学信网）。
+- **在包率（ground truth）：243 个活号里只有 3 个 uid 的 `trade/init` 是 `6700 / stage=1`（1.4%）**（旧批 1/137 = 0.73%，Wilson 0.13%–4.02%）。按 uid 去重后 218 个：cc=1 1/14、cc=86 2/64、cc=852 1/119、cc=0 0/20。`exit_retention` 标记是「展示资源」，被 `frequency/report` 消费后会消失但资格还在（R476），所以**只认 `trade/init`**，标记只做快速预筛。分层后差异极大：**iso=US 10.2% / HK 15.0% / CN 0%**（R468）。规模化只有两条：扩大境外注册环境的号源，或走学生认证线（需抖音绑定 + 学信网）。
 - **支付链 30 分钟过期**（`order_expire_seconds=1799`）。
 - **试用到期自动续费 ¥68/月**，务必在 `subscription/cancel` 关闭。
 - **Cookie 会失效**：全量扫描时 35.4% 已 `login invalid`。**号源是当前唯一瓶颈。**
@@ -1107,6 +1152,7 @@ This repository documents **how the system works**, not how to bypass it. It con
 
 | Round | 内容 |
 |---|---|
+| **R476** | 拆开「展示资源」与「资格」：`resource/frequency/report` 只消费 `exit_retention` 展示（activity_id → None），`trade/init` 的 `6700 / stage=1` 不变（2/2）；`screen.py` 默认改用 `trade/init` ground truth，243 活号复扫确认全池仅 3 个 uid 能出 ¥1；同一 uid 的 activity 会从 `first_purchase_discount` 漂到 `free_trial_v2`；cc=1 7.1% / cc=86 3.1% / cc=852 0.8% / cc=0 0%（20 样本）；新增证伪 #54–#56 |
 | **R475** | 找到服务端资格标记：`marketing/resource/mget/v2` 的 `exit_retention.activity_id` ∈ {`first_purchase_discount`,`free_trial_v2`} ⇒ 被 1 元活动选中（境外直接 6700）；243 活号预筛 16.8 s、9 个标记、3 个境外全部 6700；新增 `tools/screen.py`（1 请求/号）与 `tools/watch_activity.py`（标记活性观测） |
 | **R473–R474** | 9 条分桶信号全负（uid 取模 / AB / banner / 会话数 / intake / 桌面口径 / `activity_id`×6+`entry_method`×3 / `auth/grant` 死代码 / 真机 PC 登录）；新增 `tools/stock.py`（库存复验 + 扫码自动入库 + 按需出码，当前 STOCK=3 uid） |
 | **R472** | 客户端侧收口：`resources.pak`（14.7 MB）`alice`/`eligibility`/`campaign` **0 命中**；`local_webcontents` 2322 文件里 `ai-views` 467 条 alice 路径、62 条 commerce **与 web 端完全重合**；`intro_offer` 只是 `trade/create|estimate` 入参；新增 `tools/qr_batch.py`（循环扫码 → 判资格 → 出码，`--stop-on-hit`） |
