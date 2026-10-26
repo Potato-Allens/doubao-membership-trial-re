@@ -57,6 +57,9 @@ def append_ledger(path, rec):
         f.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
 
+HIT_SEEN = set()
+
+
 def run_once(args, scope, seen):
     pool = dy.load_pool(args.pool)
     items = [(a.get("name") or str(a.get("uid")), a.get("ck") or dy.ck_dict(a.get("cookie_string") or ""))
@@ -80,9 +83,16 @@ def run_once(args, scope, seen):
                 print("[HIT] %-22s uid=%s disc=%s stage=%s card=%s btn=%s" %
                       (r.get("name"), r.get("uid", "-"), r.get("disc"),
                        ti.get("trial_stage"), r.get("card"), r.get("btn")), flush=True)
+                key = (r.get("name"), r.get("disc"))
+                if key not in HIT_SEEN:
+                    HIT_SEEN.add(key)
+                    append_ledger(args.ledger, {"ts": int(time.time()), "event": "hit",
+                                                "name": r.get("name"), "uid": r.get("uid"),
+                                                "disc": r.get("disc"), "trial": r.get("trial"),
+                                                "card": r.get("card")})
                 if not args.no_mint:
                     m = mint_one(r, scope)
-                    rec = {"ts": int(time.time()), "name": r.get("name"),
+                    rec = {"ts": int(time.time()), "event": "mint", "name": r.get("name"),
                            "disc": r.get("disc"), "order_id": m.get("order_id"),
                            "subscription_id": m.get("subscription_id"),
                            "pay_url": m.get("pay_url"), "expire_seconds": m.get("expire_seconds"),

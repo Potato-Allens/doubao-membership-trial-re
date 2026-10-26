@@ -427,6 +427,27 @@ POST /biz/activity/get_pop_window?<公共参数>&doubao_device_platform=desktop
 
 > 也就是说：资格没有任何"可观测的客户端标记"，只在 `trade/init` 的价格与 `trial_info` 里体现。`intake/entitlement/query` 返回的 `fingerprint` 在命中号与普通号上**完全相同**（设备级指纹，不是用户级标记）。
 
+### 10.6 命中率统计与"随时有货"工程
+
+以"212 个号中 137 活、仅 1 个 6700"为样本：
+
+| 指标 | 数值 |
+|---|---|
+| 点估计 | **0.73%**（1/137） |
+| Wilson 95% 置信区间 | **0.13% – 4.02%** |
+| 期望账号数 / 每命中 | **约 137 个**（区间 25 – 775） |
+
+结论：这是**小比例人群包**，不是可以"调参打开"的开关。工程上唯一能保证"随时有 1 元链接"的做法，是**常驻探测器 + 命中库存**：
+
+```bash
+cd tools
+python hunt.py --pool ../data/sample_pool.json -c 10 --watch 3600 --no-mint --ledger hits.jsonl
+```
+
+- 每轮全量只读 `trade/init`，命中写 `hits.jsonl`（`event:"hit"`），**不建单、不动账号**；
+- 需要出链时再对命中号执行 `mint`（资格不会因为探测而消耗）；
+- 已在本机以 60 分钟周期常驻运行，池子 137 活号、当前 hits=0。
+
 ---
 
 ## 11. 已证伪清单（重要）
@@ -456,6 +477,10 @@ POST /biz/activity/get_pop_window?<公共参数>&doubao_device_platform=desktop
 | 19 | 换 SKU 拿别的试用卡 | std/plus/pro/ultra/team | ❌ 返回都是同一组 13 张卡（含 `doubao_free_display`） |
 | 20 | 用 `campaign/page/query` 的 `page_status` 判断名额 | 全部账号（含已焚毁的命中号）都回 `{page_status:3}`；**`page_status` 在 41 MB bundle 里 0 命中** | ❌ 死字段，客户端根本不解析；"售罄"解读作废 |
 | 21 | `campaign/trial/init` / `incentive/campaign/join` / `pc_new_user_page` 可领试用 | 逐个调用 + 查 bundle 调用点 | ❌ `trial/init` 恒 `710010702`；后两者**只定义无调用**（死代码） |
+| 22 | 移动端通道（android/ios/harmony/ipad）专享 1 元 | 5 组 `device_platform` 矩阵 | ❌ 全部 `disc=0`，服务端按 cookie 认人 |
+| 23 | `trade/estimate` 能拿到 intro 价 | `total_price=6800` + `is_eligible_for_intro_offer=true` | ❌ `pay_amount` 恒 `6800`，`trade_extra="{}"` |
+| 24 | `activities[]` 里有隐藏人群标记 | 137 个活号全量拉 | ❌ 全部 `[{"crowd":"student","status":2}]`，零差异 |
+| 25 | 其他池子 / 客户端里还有可用账号 | `pool/*`、`export/*`、Doubao / DoubaoWork 的 CDP cookie | ❌ 无新 sessionid；SMS 服务余额 $0.42，无法注册新号 |
 
 第 10 条是本轮最贵的一刀：用了唯一带资格的账号，¥1 已退，`subscription_id` 归 0，资格永久消失。
 

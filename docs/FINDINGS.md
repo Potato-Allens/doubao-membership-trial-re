@@ -236,3 +236,17 @@ CDP 抓包（R460）拿到了客户端原始 body，端点本身完全可用。�
 - PC 端 4652 个前端文件里：`activity_id` 硬编码 **0 个**，`campaign_group_code` **0 个**，只有 3 个 `pc_growth_*` 的 `campaign_code`（UG 任务类）。
 
 ⇒ **不存在"每日零点放名额"机制**；时间窗假设关闭。
+### K.6 R465：移动端 / estimate / activities / 号源 四条线
+
+| 线路 | 做法 | 结果 |
+|---|---|---|
+| 移动端专享促销 | `device_platform` = android / ios / harmony / ipad / pc_win | 全 `disc=0`，服务端按 cookie 认人，不认 UA |
+| estimate 泄漏 intro 价 | `trade/estimate` + `total_price=6800` + `is_eligible_for_intro_offer=true` | `pay_amount` 恒 6800，`trade_extra="{}"` |
+| `activities[]` 人群标记 | 137 个活号全量 | 全部 `[{"crowd":"student","status":2}]`，零差异 |
+| 新号源 | `pool/*`、`export/*`、Doubao/DoubaoWork CDP cookie、nexSMS 余额 | 无新 sessionid；nexSMS 余额 **$0.42**，无法注册 |
+
+**统计**：1/137 命中 → 0.73%，Wilson 95% CI 0.13%–4.02%，期望 137 个号/命中（区间 25–775）。
+
+**工程结论**：唯一可交付的"随时有货"形态 = 常驻 `hunt.py --watch`（只读探测）+ 命中库存 + 按需 mint。已在 137 活号上以 60 分钟周期运行。
+
+> `hunt.py` 本轮升级：命中即使 `--no-mint` 也写 `hits.jsonl`（`event:"hit"`），并做 `(name, disc)` 去重，避免 watch 模式刷屏。
