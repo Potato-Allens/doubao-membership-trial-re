@@ -804,6 +804,26 @@ python tools/triage.py --pool pool.json -c 10              # 只分流，最省
 python tools/triage.py --pool pool.json -c 10 --with-init   # 候选号再打 trade/init
 ```
 
+### 10.14 客户端侧收口：没有第六个开关（R472）
+
+R472 把 PC 客户端真包（`AppData\Local\Doubao\Application\app`，CDP :9224）整个翻了一遍，目的是确认「客户端里是不是还藏着一条能自己发资格的路」。
+
+| 面 | 方法 | 结果 |
+|---|---|---|
+| `resources.pak`（14.7 MB） | 二进制扫 `alice` / `eligibility` / `campaign` | 0 / 0 / 0 |
+| `local_webcontents`（2322 个 js/json，138 MB） | 全量路径抽取 | `/alice/` 命中 20 个文件 |
+| `extensions\ai-views\static\js` | 与 web 端路径比对 | 467 条 alice、62 条 commerce，与 web 端 67 条**完全重合** |
+| `intro_offer` | 全局符号追踪 | 只是 `trade/create` / `trade/estimate` 的**入参字段**，没有独立入口 |
+
+结论：客户端只做一件事——把服务端下发的 `selected_eligibility_id` 原样回传。**没有可拨的开关，也没有只存在于客户端的接口。**
+
+**批量扫码工具** `tools/qr_batch.py`：一轮一张码，扫完立刻判资格，命中当场出 1 元支付码；每轮二维码另存 `qr/round_NN.png`，结果落 `batch_ledger.jsonl`（`round/uid/hit/disc/pay_url/order_id`）。
+
+```bash
+python tools/qr_batch.py --rounds 20 --timeout 300   # 连续 20 轮
+python tools/qr_batch.py --rounds 5 --stop-on-hit    # 命中即停
+```
+
 ## 11. 已证伪清单（重要）
 
 这一节是本项目最诚实的部分。以下假设**都做过实验，都失败了**，记录在此避免重复劳动：
@@ -853,6 +873,8 @@ python tools/triage.py --pool pool.json -c 10 --with-init   # 候选号再打 tr
 | 41 | 卡券里能开出会员体验卡 | `marketing/card/list`、`card/balance`（命中 vs 普通） | ❌ 只有 `quota_reset_card`（额度重置），与会员无关 |
 | 42 | 用过免费会员的号还能拿 1 元 | 243 活号全量 `subscription/list` 对齐 | ❌ 有订阅记录的 117 个境外行 **0 命中**；资格被历史免费会员顶掉 |
 | 43 | 境外 + 零订阅就够了 | 18 个候选 uid 全量复核 | ❌ 只有 3 个命中（16.7%），其余 15 个可观测量与命中号完全一致，仍在服务端 |
+| 44 | 客户端 `resources.pak` 里藏着活动 / 资格接口 | 14.7 MB 二进制扫 `alice` / `eligibility` / `campaign` | ❌ 三个关键词全 **0 命中** |
+| 45 | 客户端扩展里有 web 端没有的私有接口 | `ai-views` 467 条 alice 路径与 web 端比对 | ❌ 与 web 端 67 条**完全重合**，无新增 |
 
 第 10 条是本项目最贵的一刀：用了唯一带资格的账号，¥1 已退，`subscription_id` 归 0，资格永久消失。
 
@@ -981,6 +1003,7 @@ This repository documents **how the system works**, not how to bypass it. It con
 
 | Round | 内容 |
 |---|---|
+| **R472** | 客户端侧收口：`resources.pak`（14.7 MB）`alice`/`eligibility`/`campaign` **0 命中**；`local_webcontents` 2322 文件里 `ai-views` 467 条 alice 路径、62 条 commerce **与 web 端完全重合**；`intro_offer` 只是 `trade/create|estimate` 入参；新增 `tools/qr_batch.py`（循环扫码 → 判资格 → 出码，`--stop-on-hit`） |
 | **R471** | 候选漏斗：560 → 活 243 → 境外 143 → **境外+零订阅 27 行/18 uid** → 命中 6 行/3 uid（**16.7%**，比全池 1.2% 高 14 倍）；证明 `cc=86` 零订阅也 0 命中、有订阅记录的境外号 0 命中；新增 `tools/triage.py`（33.5 s 跑完全池） |
 | **R470** | 账号档案 `passport/account/info/v2` 对齐 243 活号：`country_code` 1/852 才有命中（86 的 79 行 0 命中），但境外 143 行也只中 6 行 →资格是**按 uid 发放的独立 eligibility 记录**（3 个号 3 个不同 id）；7 组 region 矩阵无效；`student/*`、`ug/campaign/*`、`marketing/card/*` 全负；CDP 抓到会员页真实调用序列（5 个请求，无隐藏开关）；Desktop 4554 条只活 2 条 0 命中 |
 | **R469** | `trade/init` 全字段递归 diff：命中 vs 普通**只有 9 处差异**，全在 `sku_list[1].purchase_card_list[0]`，`activities` 两号一致 → 无客户端人群标记；`Downloads` 2186 个 sid 抽 100 → 100/100 `710012001`（Dola 号，弃）；Chrome 136 profile 全解（DPAPI + AES-GCM，明文需 `[32:]`）→ 仅 4 条新 sid；新增 `tools/_r469_diff.py`、`tools/_r469_chromedb.py` |
@@ -1014,6 +1037,7 @@ This repository documents **how the system works**, not how to bypass it. It con
 | 本地 Chrome profile 取 cookie | `tools/_r469_chromedb.py` |
 | 资格 vs 手机国家码（243 活号） | `docs/evidence/r470_country_code.json` |
 | 候选漏斗（境外 + 零订阅） | `tools/triage.py` |
+| 批量扫码出码（命中即停） | `tools/qr_batch.py` |
 | 错误码对照 | 本文 §9、`docs/PROTOCOL.md` §12.2 |
 
 ---
