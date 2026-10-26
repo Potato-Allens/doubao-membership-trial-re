@@ -5,7 +5,7 @@
 [![Python](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)](#51-安装)
 [![Accounts](https://img.shields.io/badge/sample-560%20accounts-4B5563)](#10-实测数据)
 [![Endpoints](https://img.shields.io/badge/endpoints-80%2B-0EA5E9)](#8-接口地图)
-[![Falsified](https://img.shields.io/badge/hypotheses%20falsified-83-DC2626)](#11-已证伪清单重要)
+[![Falsified](https://img.shields.io/badge/hypotheses%20falsified-86-DC2626)](#11-已证伪清单重要)
 [![License](https://img.shields.io/badge/license-Apache--2.0-111827)](LICENSE)
 
 对豆包（Doubao）会员订阅体系做的一次**协议级逆向工程**：静态分析约 41 MB 的前端 bundle、用 CDP 抓 PC 客户端真包、对 212 个历史账号做只读探测与差分，最终把「1 元 / 7 天试用」的判定、下单、支付、退款、取消续费整条链路还原成可复现的代码与数据。
@@ -21,7 +21,7 @@
 | **英文仓库名** | `doubao-membership-trial-re` |
 | **英文 About（GitHub 描述）** | Protocol-level reverse engineering of Doubao membership: a per-uid eligibility oracle, the full order → pay → refund pipeline, and 70 falsified hypotheses. |
 | **建议 Topics** | `reverse-engineering`, `protocol-analysis`, `doubao`, `subscription`, `cdp`, `traffic-analysis`, `python` |
-| **中文介绍** | 对豆包会员订阅体系做协议级逆向：用 41 MB 前端 bundle 静态还原 + PC 客户端 CDP 真包抓取 + 560 个账号（243 个存活）只读探测，证明「1 元 / 7 天试用」是服务端按 `uid` 下发的人群包资格，客户端无任何开关。R475 找到服务端资格标记 `marketing/resource/mget/v2` 的 `exit_retention.activity_id`：`first_purchase_discount` / `free_trial_v2` 即被活动选中，一次请求即可 16.8 秒预筛全池、标记号出单命中率 100%，把原来的 16.7% 抽奖变成两级流水线（先筛标记、再按地区定档）。仓库给出只读判定器、命中出单流水线、80+ 端点 schema，以及 83 条实测证伪记录（含 R478 passport 签名面、退款不回滚、零点不放名额、裂变入口无活动、买退再买、客户端全部开关等）。 |
+| **中文介绍** | 对豆包会员订阅体系做协议级逆向：用 41 MB 前端 bundle 静态还原 + PC 客户端 CDP 真包抓取 + 560 个账号（243 个存活）只读探测，证明「1 元 / 7 天试用」是服务端按 `uid` 下发的人群包资格，客户端无任何开关。R475 找到服务端资格标记 `marketing/resource/mget/v2` 的 `exit_retention.activity_id`：`first_purchase_discount` / `free_trial_v2` 即被活动选中，一次请求即可 16.8 秒预筛全池、标记号出单命中率 100%，把原来的 16.7% 抽奖变成两级流水线（先筛标记、再按地区定档）。仓库给出只读判定器、命中出单流水线、80+ 端点 schema，以及 86 条实测证伪记录（含 R478 passport 签名面、退款不回滚、零点不放名额、裂变入口无活动、买退再买、客户端全部开关等）。 |
 
 ## 0. 30 秒读懂
 
@@ -1146,6 +1146,33 @@ campaign / popup / season 键；`pc_activity_channel_campaigns` 不在 settings 
 结论：活动 / 弹窗 / 领奖 / 学生 / 报价五条面全负。唯一还活着的写接口是「支付成功」，而支付前置的
 资格由服务端按 uid 抽样，客户端没有开关。
 
+### 10.22 PC 客户端真包：弹窗接口也不发 1 元（R483）
+
+这轮直接挂 CDP 到本机豆包客户端（`--remote-debugging-port=9224`），从会员页与聊天页抓真包，
+确认 PC 端有没有 Web 端看不到的活动入口。
+
+**（1）会员页与 Web 端完全同一条链路。** 客户端打开 `/member/subscription` 后依次打
+`subscription/entry/config` → `trade/init`（`{"scene_key":"default_member_link","purchase_channel":2}`）
+→ `incentive/campaign/subscription/query` → `marketing/subscribe/init` → `mget/v2`
+（`["subscription_bottom_toast","exit_retention"]`）。**没有任何 PC 专属的 `activity_id` 或隐藏参数**；
+`trade/init` 的 body 与 Web 端一致。
+
+**（2）`get_pop_window` 才是 PC 弹窗的真接口。** 正确参数是
+`aid=582478 / doubao_device_platform=desktop / pc_version=2.33.5` + body
+`{"pc_os":"Windows","scene":8,"surface":2,"ug_campaign_info":{}}`。
+用命中号 / 普通号 / 客户端号扫 `scene 0–30 × surface 1–3`：命中号与普通号**全空**；
+只有已订阅「体验套餐」的企业号在 `scene=8` 返回 `membership_activity_v3`
+（`PC阳光普照三期`，`biz_req_id=enterprise_pc_vip_3`，按钮仅 `close_only`），与 1 元试用无关。
+
+**（3）`incentive/campaign/subscription/query` 是订阅激励，不是试用。** 命中号 / cc=0 / cc=852 /
+客户端号各打一次 `{}` → 全部 `data:null`；`marketing/subscribe/init` 只返回
+`renewal_guidance_v1`（`hit:false`），没有 `free_trial_v2`。
+
+**（4）`entry/config.country_code` 不跟账号 cc 走。** cc=1 / cc=852 / cc=0 三类号全部返回
+`country_code:"CN"`，说明 commerce 侧的地区字段与 passport 的 `country_code` 是两套东西。
+
+结论：PC 客户端没有 Web 端之外的 1 元入口；弹窗活动是「企业体验套餐 / 续费引导」，不是试用。
+
 ## 11. 已证伪清单（重要）
 
 这一节是本项目最诚实的部分。以下假设**都做过实验，都失败了**，记录在此避免重复劳动：
@@ -1237,6 +1264,9 @@ campaign / popup / season 键；`pc_activity_channel_campaigns` 不在 settings 
 | 81 | 手机号注册可以绕过邮箱的滑块 | `/passport/web/send_code/` type=1，+852 测试号 | ❌ 同样 `1105 滑块`（`subtype: slide`），两条注册通道共用闸门 |
 | 82 | 境外注册画像满足条件就必出 1 元 | 画像 `hm=2/appid=497858/odin=12/pw=0/境外手机` 的 144 个活号 | ❌ 仅 3 个命中（2.1%）；10-13 当天 21 活号 2 命中且注册时间交错 ⇒ 随机抽样，非确定条件 |
 | 83 | TCC `settings/v3` 里能读到活动/弹窗配置 | aid=497858 全量 1155 项 | ❌ 无 campaign / popup / season 键；客户端 localStorage 也无 `pc_activity_channel_campaigns` |
+| 84 | PC 客户端弹窗接口能给出 1 元活动 | CDP 抓真包后按 `aid=582478/scene=8/surface=2/desktop` 扫 scene 0–30 × surface 1–3 | ❌ 命中号与普通号全空；仅已订阅企业号返回 `membership_activity_v3`（企业体验套餐，非 1 元） |
+| 85 | `incentive/campaign/subscription/query` 有隐藏试用活动 | 命中号 / cc=0 / cc=852 / 客户端号各打一次 `{}` | ❌ 全部 `data:null`；`subscribe/init` 只回 `renewal_guidance_v1 hit:false` |
+| 86 | `entry/config.country_code` 跟账号 `cc` 走 | cc=1 / cc=852 / cc=0 三类号对比 | ❌ 全部 `country_code:"CN"`，commerce 地区与 passport `cc` 是两套字段 |
 
 第 10 条是本项目最贵的一刀：用了唯一带资格的账号，¥1 已退，`subscription_id` 归 0，资格永久消失。
 
@@ -1365,6 +1395,7 @@ This repository documents **how the system works**, not how to bypass it. It con
 
 | Round | 内容 |
 |---|---|
+| **R483** | 挂 CDP（9224）抓 PC 客户端真包：会员页与 Web 同一条 `trade/init`（`default_member_link` + `purchase_channel:2`），无 PC 专属活动参数；`get_pop_window` 用 `aid=582478/scene=8/surface=2` 扫全场景，命中号全空，仅企业体验号返回 `membership_activity_v3`；`incentive/campaign/subscription/query` 恒 null、`subscribe/init` 只回续费引导；`entry/config.country_code` 恒 CN；新增证伪 #84–#86 |
 | **R482** | 活动/弹窗/领奖面穷举 13 条负：`exit_retention` 空返回仍 6700（展示资源）、mget intro flag 三态无效、`trade/init` 7 个 activity_id 全 `611080000`、`campaign/page/query` 恒 page_status 3、`campaign/trial/init`+`fixed_subscription/claim` 系统错误、CTA 无策略、`activity/detail` 无合法 channel、学生权益需抖音、`trade/create` 传 100 被 `611060114` 重算、手机 send_code 同 1105 滑块、境外画像 2.1% 随机、TCC 无活动键；新增证伪 #71–#83 |
 | **R480** | 号源侧收口：`multi_sids` 池外 163 uid 仅 3 alive（全 cc=0）、Downloads 6675 sid 抽 240 全死、cc=86 标记号 13 张卡无 trial（只有 ¥38）、`is_gift_deferred` 被 `611060114` 拒绝；库存 6/6 复验仍 6700/stage=1；新增证伪 #66–#70；邮箱 send_code 带浏览器 cookie 仍 1105 滑块 |
 | **R479** | passport `sign` 完全复算（sha256，前 10 个排序参数 + body + app_key，6/6 复现）；`bind_prefered_lark` 带正确 sign 后 2035 消失，唯一必需入参是 Lark `code`，`code="test"` 返回 `2087 企业安全策略`；`a_bogus` 不是 bind 必需项；+1 注册不可行（国家列表仅 +86/+852/+853/+886）；新增证伪 #63–#65 |

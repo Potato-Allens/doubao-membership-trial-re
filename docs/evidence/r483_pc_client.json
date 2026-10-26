@@ -1,0 +1,131 @@
+{
+ "round": "R483",
+ "ts": 1793044873,
+ "source": "CDP 127.0.0.1:9224, Doubao PC client 2.33.5",
+ "member_page_calls": [
+  "/alice/commerce/sale/subscription/entry/config/ {}",
+  "/alice/commerce/sale/trade/init/ {\"scene_key\":\"default_member_link\",\"purchase_channel\":2}",
+  "/alice/commerce/incentive/campaign/subscription/query/ {}",
+  "/alice/commerce/marketing/subscribe/init/ {}",
+  "/alice/commerce/marketing/resource/mget/v2/ {\"resource_keys\":[\"subscription_bottom_toast\",\"exit_retention\"]}"
+ ],
+ "pop_window": {
+  "request": {
+   "pc_os": "Windows",
+   "scene": 8,
+   "surface": 2,
+   "ug_campaign_info": {}
+  },
+  "scope": {
+   "aid": 582478,
+   "doubao_device_platform": "desktop",
+   "pc_version": "2.33.5"
+  },
+  "hit2_1": "empty",
+  "u166": "empty",
+  "ctl72": "empty",
+  "ctl200": {
+   "candidate_ext": {
+    "activity_id": "membership_activity_v3",
+    "creator": "pangyuchao@bytedance.com",
+    "generic_business_filter_biz_scene": "enterprise_pc_vip_3",
+    "generic_business_filter_enabled": "true",
+    "generic_business_filter_need_lark_id": "false",
+    "generic_business_filter_psm": "flow.commerce.marketing",
+    "last_modifier": "pangyuchao@bytedance.com",
+    "meego_url": "",
+    "op_approval_id": "39bc57b9e250b1f6e7c2e654f68f97006b0f2d2539ea60350a17276fc94c26b1",
+    "op_approval_operator": "ouwenzhong@bytedance.com",
+    "op_revision": "4d262cbe31eb015da0eba49637d288d7c489b9d1a7a7ad714e7242a125ada2e9",
+    "pc_activity_pop": "true",
+    "pc_activity_pop_config": "{\"popup_style\":\"fullscreen\",\"description_format\":\"markdown\",\"primary_action_type\":\"close_only\",\"primary_action_text\":\"立即体验\",\"remind_later_enabled\":false,\"display_scenes\":[\"desktop_home\",\"web_home\",\"browser_new_tab\"],\"show_enterprise_account\":true,\"show_login_user\":true,\"show_logout_user\":false}",
+    "prd_url": "",
+    "requirement_url": "https://bytedance.larkoffice.com/docx/C779dFYlsoCKt0xEX6McnHEBnAg"
+   },
+   "effective_time": 1783913685,
+   "expire_time": 1798774487,
+   "gid": "57857961323066882",
+   "pop_window_conf": {
+    "background_color": {
+     "color_dark": "#FF252525",
+     "color_light": "#FFFFFFFF"
+    },
+    "button_list": [
+     {
+      "action_cooldown_hours": 0,
+      "action_type": 3,
+      "background_color": {
+       "color_dark": "",
+       "color_light": ""
+      },
+      "biz_req_id": "enterprise_pc_vip_3",
+      "params": "{\"activity_id\":\"membership_activity_v3\"}",
+      "role": 1,
+      "schema": "",
+      "text": "立即体验",
+      "text_color": {
+       "color_dark": "",
+       "color_light": ""
+      }
+     }
+    ],
+    "frequency_conf": {
+     "end_hour": 24,
+     "max_impressions": 1,
+     "start_hour": 0,
+     "window_seconds": 10
+    },
+    "media_list": [
+     {
+      "media_dark_uri": "",
+      "media_dark_url": "",
+      "media_type": 1,
+      "media_uri": "ocean-cloud-tos/FileBizType.BIZ_BOT_ICON/2665061_1791897765705857991.png",
+      "media_url": "https://p26-flow-imagex-sign.byteimg.com/ocean-cloud-tos/FileBizType.BIZ_BOT_ICON/2665061_1791897765705857991.png~tplv-a9rns2rl98-image-qvalue.image?lk3s=8e244e95&rcl=202610270353362AC1C0B7C98416353B86&rrcfp=0a25468d&x-expires=1793048016&x-signature=dVydFm1WqX637Gf%2BtcOm5E8YRr4%3D",
+      "vid": "",
+      "video_cover_uri": "",
+      "video_cover_url": ""
+     }
+    ],
+    "name": "PC阳光普照三期",
+    "pop_window_type": 2,
+    "priority": 651,
+    "show_trumpet": false,
+    "text": {
+     "description": "使用工作任务模式，擅长处理复杂工作，可产出专业PPT/Excel/文档和代码，效果好、成本低、额度更耐用。已订阅用户到期时间将自动延长。",
+     "description_alignment": 2,
+     "description_color": {
+      "color_dark": "#FFCCCCCC",
+      "color_light": "#FF666666"
+     },
+     "text_alignment": 2,
+     "text_color": {
+      "color_dark": "#FFFFFFFF",
+      "color_light": "#FF000000"
+     },
+     "title": "30天免费体验套餐已到账，工作任务放心用"
+    }
+   }
+  },
+  "scene_scan": "scene 0-30 x surface 1-3; hits/controls only scene 7/11/12/16 suggestion clusters, no membership activity"
+ },
+ "incentive_query": {
+  "hit2_1": null,
+  "u166": null,
+  "ctl72": null,
+  "ctl200": null
+ },
+ "subscribe_init": {
+  "all": {
+   "renewal_guidance_v1": {
+    "hit": false
+   }
+  }
+ },
+ "entry_config_country": {
+  "cc1": "CN",
+  "cc852": "CN",
+  "cc0": "CN"
+ },
+ "stock_recheck": "6/6 disc=6700 stage=1 at 2026-10-27T03:39+08:00"
+}
